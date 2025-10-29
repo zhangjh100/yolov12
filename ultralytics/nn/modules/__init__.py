@@ -59,6 +59,7 @@ from .block import (
     TorchVision,
     A2C2f,
     CrissCrossAttention,
+    CBAM,
 )
 from .conv import (
     CBAM,
