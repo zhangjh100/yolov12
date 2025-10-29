@@ -8,7 +8,7 @@ from torch.nn import Softmax
 
 from ultralytics.utils.torch_utils import fuse_conv_and_bn
 
-from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
+from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad, CBAM
 from .transformer import TransformerBlock
 
 __all__ = (
