@@ -1408,6 +1408,8 @@ class CrissCrossAttention(nn.Module):
         att_W = concate[:,:,:,height:height+width].contiguous().view(m_batchsize*height,width,width)
         proj_value_H = proj_value_H.to(torch.float32)
         att_H = att_H.to(torch.float32)
+        proj_value_W = proj_value_W.to(torch.float32)
+        att_W = att_W.to(torch.float32)
         out_H = torch.bmm(proj_value_H, att_H.permute(0, 2, 1)).view(m_batchsize,width,-1,height).permute(0,2,3,1)
         out_W = torch.bmm(proj_value_W, att_W.permute(0, 2, 1)).view(m_batchsize,height,-1,width).permute(0,2,1,3)
         #print(out_H.size(),out_W.size())
