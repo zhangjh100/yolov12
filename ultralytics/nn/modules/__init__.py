@@ -58,6 +58,7 @@ from .block import (
     SCDown,
     TorchVision,
     A2C2f,
+    CrissCrossAttention,
 )
 from .conv import (
     CBAM,
