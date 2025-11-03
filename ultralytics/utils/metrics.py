@@ -1043,20 +1043,32 @@ class SegmentMetrics(SimpleClass):
 
     @property
     def mean_iou(self):
-        """Compute mean Intersection over Union (mIoU) for masks."""
+        """计算平均IoU"""
         if not self.iou:
             return 0.0
         valid_iou = [x for x in self.iou if isinstance(x, torch.Tensor)]
-        if not valid_iou:
-            return 0.0
-        return torch.cat(valid_iou).mean().item()
+        return torch.cat(valid_iou).mean().item() if valid_iou else 0.0
+    # def mean_iou(self):
+    #     """Compute mean Intersection over Union (mIoU) for masks."""
+    #     if not self.iou:
+    #         return 0.0
+    #     valid_iou = [x for x in self.iou if isinstance(x, torch.Tensor)]
+    #     if not valid_iou:
+    #         return 0.0
+    #     return torch.cat(valid_iou).mean().item()
 
     @property
     def mean_dice(self):
-        """计算所有类别的平均Dice"""
+        """计算平均Dice系数（新增）"""
         if not self.dice:
             return 0.0
-        return torch.cat(self.dice).mean().item()
+        valid_dice = [x for x in self.dice if isinstance(x, torch.Tensor)]
+        return torch.cat(valid_dice).mean().item() if valid_dice else 0.0
+    # def mean_dice(self):
+    #     """计算所有类别的平均Dice"""
+    #     if not self.dice:
+    #         return 0.0
+    #     return torch.cat(self.dice).mean().item()
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
         """
@@ -1095,6 +1107,24 @@ class SegmentMetrics(SimpleClass):
         )[2:]
         self.box.nc = len(self.names)
         self.box.update(results_box)
+        if tp_m is not None:
+            self.tp_m.append(tp_m)
+            # 计算掩码的Recall、Precision等（基于tp_m）
+        self.calculate_mask_metrics()
+
+    def calculate_mask_metrics(self):
+        """计算掩码的Recall、Precision、mAP等指标"""
+        if not self.tp_m:
+            self.mask_recall = 0.0
+            self.mask_precision = 0.0
+            return
+        # 拼接所有批次的tp_m（掩码正确预测）
+        tp_m = torch.cat(self.tp_m, 0).cpu().numpy()
+        # 计算每个IoU阈值下的Recall（召回率=正确预测数/总真实数）
+        self.mask_recall = tp_m.sum(0) / (self.nt_per_class[:, None] + 1e-10)
+        # 计算每个IoU阈值下的Precision（精确率=正确预测数/总预测数）
+        self.mask_precision = tp_m.sum(0) / (tp_m.sum(0) + (1 - tp_m).sum(0) + 1e-10)
+        # 此处可补充掩码mAP的计算逻辑（类似DetMetrics中的mAP计算）
 
     @property
     def keys(self):
@@ -1108,6 +1138,8 @@ class SegmentMetrics(SimpleClass):
             "metrics/recall(M)",
             "metrics/mAP50(M)",
             "metrics/mAP50-95(M)",
+            "metrics/IoU(M)",
+            "metrics/Dice(M)"
         ]
 
     def mean_results(self):
@@ -1135,8 +1167,18 @@ class SegmentMetrics(SimpleClass):
 
     @property
     def results_dict(self):
-        """Returns results of object detection model for evaluation."""
-        return dict(zip(self.keys + ["fitness"], self.mean_results() + [self.fitness]))
+        """扩展结果字典，包含掩码指标"""
+        base_dict = super().results_dict  # 边界框指标
+        mask_dict = {
+            "mask_P": self.mask_precision.mean() if hasattr(self, 'mask_precision') else 0.0,
+            "mask_R": self.mask_recall.mean() if hasattr(self, 'mask_recall') else 0.0,
+            "mask_mIoU": self.mean_iou,
+            "mask_Dice": self.mean_dice
+        }
+        return {**base_dict, **mask_dict}
+    # def results_dict(self):
+    #     """Returns results of object detection model for evaluation."""
+    #     return dict(zip(self.keys + ["fitness"], self.mean_results() + [self.fitness]))
 
     @property
     def curves(self):

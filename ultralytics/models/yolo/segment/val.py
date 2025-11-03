@@ -64,11 +64,34 @@ class SegmentationValidator(DetectionValidator):
             "mAP50-95)",
             "Mask(P",
             "R",
-            "mAP50",
-            "mAP50-95)",
             "IoU",
             "Dice",
         )
+
+    def get_stats(self):
+        """获取并处理统计数据，传递tp_m给metrics"""
+        stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in self.stats.items()}  # 拼接所有批次数据
+        self.nt_per_class = np.bincount(stats["target_cls"].astype(int), minlength=self.nc)  # 总真实目标数
+        if len(stats) and "tp_m" in stats and stats["tp_m"].any():
+            # 将掩码相关统计数据传入metrics
+            self.metrics.process(
+                tp_m=stats["tp_m"],
+                conf=stats["conf"],
+                pred_cls=stats["pred_cls"],
+                target_cls=stats["target_cls"],
+                nt_per_class=self.nt_per_class
+            )
+        return self.metrics.results_dict
+
+    def print_results(self):
+        """打印掩码指标结果"""
+        # 调用父类方法打印边界框指标
+        super().print_results()
+        # 打印掩码指标
+        LOGGER.info(f"Mask metrics: P={self.metrics.mask_precision.mean():.3f}, "
+                    f"R={self.metrics.mask_recall.mean():.3f}, "
+                    f"mIoU={self.metrics.mean_iou:.3f}, "
+                    f"Dice={self.metrics.mean_dice:.3f}")
 
     def postprocess(self, preds):
         """Post-processes YOLO predictions and returns output detections with proto."""
@@ -159,6 +182,9 @@ class SegmentationValidator(DetectionValidator):
                 stat["tp_m"] = self._process_batch(
                     predn, bbox, cls, pred_masks, gt_masks, self.args.overlap_mask, masks=True
                 )
+                if masks:
+                    dice = 2 * iou / (iou + 1e-10)  # Dice = 2*IoU/(IoU+1)
+                    self.metrics.dice.append(dice.flatten())
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, bbox, cls)
 
