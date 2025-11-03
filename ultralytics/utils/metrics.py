@@ -168,84 +168,55 @@ def mask_dice(mask1, mask2, eps=1e-7):
     union = mask1.sum(1)[:, None] + mask2.sum(1)[None]  # 预测面积 + 真实面积
     return (2.0 * intersection) / (union + eps)
 
-
-# def class_iou_dice(gt_masks, pred_masks, num_classes, eps=1e-7):
-#     """
-#     计算每个类别的IoU和Dice系数
-#     Args:
-#         gt_masks (torch.Tensor): 真实掩码 (N, H, W)，值为类别索引
-#         pred_masks (torch.Tensor): 预测掩码 (N, H, W)，值为类别索引
-#         num_classes (int): 类别总数
-#         eps (float): 防止除零的微小值
-#     Returns:
-#         tuple: (每个类别的IoU, 每个类别的Dice, 平均IoU, 平均Dice)
-#     """
-#     gt_masks = np.asarray(gt_masks)
-#     pred_masks = np.asarray(pred_masks)
-#     if num_classes == 0:
-#         return [], [], 0.0, 0.0
-#     ious = []
-#     dices = []
-#     for c in range(num_classes):
-#         # 提取当前类别的真实掩码和预测掩码（二值化）
-#         gt = (gt_masks == c).float().view(gt_masks.shape[0], -1)  # (N, H*W)
-#         pred = (pred_masks == c).float().view(pred_masks.shape[0], -1)  # (N, H*W)
-#
-#         # 计算该类别的IoU和Dice（取平均值）
-#         if gt.sum() == 0 and pred.sum() == 0:
-#             iou = 1.0  # 空掩码视为完全匹配
-#             dice = 1.0
-#         else:
-#             iou = mask_iou(gt, pred).mean().item()
-#             dice = mask_dice(gt, pred).mean().item()
-#         ious.append(iou)
-#         dices.append(dice)
-#
-#     return (
-#         torch.tensor(ious, device=gt_masks.device),
-#         torch.tensor(dices, device=gt_masks.device),
-#         sum(ious) / num_classes,
-#         sum(dices) / num_classes
-#     )
 def class_iou_dice(gt_mask, pred_mask, num_classes=None):
-    """计算每个类别的 IoU 和 Dice，并返回平均值"""
-    # 确保输入是 numpy 数组
-    gt_mask = np.asarray(gt_mask)
-    pred_mask = np.asarray(pred_mask)
+    """计算每个类别的 IoU 和 Dice，并返回平均值（支持PyTorch张量）"""
+    # 确保输入是PyTorch张量（保留设备信息，如GPU）
+    if isinstance(gt_mask, np.ndarray):
+        gt_mask = torch.from_numpy(gt_mask)
+    if isinstance(pred_mask, np.ndarray):
+        pred_mask = torch.from_numpy(pred_mask)
+    device = gt_mask.device  # 保留设备信息
 
     # 自动获取类别（如果未指定）
     if num_classes is None:
-        classes = np.unique(np.concatenate([gt_mask, pred_mask]))
-        num_classes = len(classes)
+        # 合并真实和预测掩码的类别，确保无遗漏
+        all_classes = torch.cat([gt_mask.unique(), pred_mask.unique()]).unique()
+        num_classes = len(all_classes)
+        classes = all_classes
     else:
-        classes = np.arange(num_classes)
+        classes = torch.arange(num_classes, device=device)
 
-    # 处理无类别情况（避免除以零）
     if num_classes == 0:
-        return [], [], 0.0, 0.0  # 空列表和 0 均值
+        return [], [], 0.0, 0.0
 
     ious = []
     dices = []
     for cls in classes:
-        # 提取当前类别的掩码
-        gt = (gt_mask == cls).astype(np.float32)
-        pred = (pred_mask == cls).astype(np.float32)
+        # 提取当前类别的二值掩码
+        gt = (gt_mask == cls).float()  # (N, H, W) -> 二值化
+        pred = (pred_mask == cls).float()
 
-        # 计算交并比
-        intersection = np.sum(gt * pred)
-        union = np.sum(gt) + np.sum(pred) - intersection
-        iou = intersection / (union + 1e-7)  # 加 eps 避免除零
+        # 展平计算交集和并集（支持批量处理）
+        gt_flat = gt.view(gt.shape[0], -1)  # (N, H*W)
+        pred_flat = pred.view(pred.shape[0], -1)
+
+        intersection = (gt_flat * pred_flat).sum(dim=1)  # 每个样本的交集
+        union = gt_flat.sum(dim=1) + pred_flat.sum(dim=1) - intersection  # 每个样本的并集
+
+        # 计算该类别的平均IoU和Dice（跨样本平均）
+        iou = (intersection / (union + 1e-7)).mean().item()
+        dice = (2.0 * intersection / (gt_flat.sum(dim=1) + pred_flat.sum(dim=1) + 1e-7)).mean().item()
+
         ious.append(iou)
-
-        # 计算 Dice 系数
-        dice = (2. * intersection) / (np.sum(gt) + np.sum(pred) + 1e-7)
         dices.append(dice)
 
-    # 计算平均 IoU 和 Dice（确保 num_classes 不为 0）
-    mean_iou = sum(ious) / num_classes if num_classes != 0 else 0.0
-    mean_dice = sum(dices) / num_classes if num_classes != 0 else 0.0
+    # 转换为张量，保持设备一致性
+    ious_tensor = torch.tensor(ious, device=device)
+    dices_tensor = torch.tensor(dices, device=device)
+    mean_iou = ious_tensor.mean().item() if num_classes > 0 else 0.0
+    mean_dice = dices_tensor.mean().item() if num_classes > 0 else 0.0
 
-    return ious, dices, mean_iou, mean_dice
+    return ious_tensor, dices_tensor, mean_iou, mean_dice
 
 def kpt_iou(kpt1, kpt2, area, sigma, eps=1e-7):
     """
@@ -1019,9 +990,8 @@ class SegmentMetrics(SimpleClass):
         results_dict: Returns the dictionary containing all the detection and segmentation metrics and fitness score.
     """
 
-    def __init__(self, save_dir=Path("."), plot=False, on_plot=None, names=(), *args, **kwargs) -> None:
-        """Initialize a SegmentMetrics instance with a save directory, plot flag, callback function, and class names."""
-        super().__init__(self, *args, **kwargs)
+    def __init__(self, save_dir=Path("."), plot=False, on_plot=None, names=()) -> None:
+        super().__init__()  # 修复原代码中的super调用错误（原代码传入了self，导致参数错误）
         self.save_dir = save_dir
         self.plot = plot
         self.on_plot = on_plot
@@ -1032,47 +1002,43 @@ class SegmentMetrics(SimpleClass):
         self.dice = []
         self.tp_m = []
         self.nc = len(names)
+        self.nt_per_class = torch.zeros(self.nc, dtype=torch.float32)  # 初始化每个类别的真实样本数
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "segment"
 
     def update_iou_dice(self, gt_masks, pred_masks):
-        """更新IoU和Dice指标"""
+        """更新IoU和Dice指标（确保输入为张量且维度匹配）"""
+        # 确保输入是张量且形状一致
+        if not isinstance(gt_masks, torch.Tensor) or not isinstance(pred_masks, torch.Tensor):
+            raise TypeError("gt_masks和pred_masks必须是PyTorch张量")
+        if gt_masks.shape != pred_masks.shape:
+            raise ValueError(f"gt_masks和pred_masks形状不匹配: {gt_masks.shape} vs {pred_masks.shape}")
+
         class_ious, class_dices, mean_iou, mean_dice = class_iou_dice(
             gt_masks, pred_masks, self.nc
         )
-        self.iou.append(class_ious)
+        self.iou.append(class_ious)  # 现在存储的是张量
         self.dice.append(class_dices)
 
     @property
     def mean_iou(self):
-        """计算平均IoU"""
+        """计算平均IoU（处理张量拼接）"""
         if not self.iou:
             return 0.0
-        valid_iou = [x for x in self.iou if isinstance(x, torch.Tensor)]
-        return torch.cat(valid_iou).mean().item() if valid_iou else 0.0
-    # def mean_iou(self):
-    #     """Compute mean Intersection over Union (mIoU) for masks."""
-    #     if not self.iou:
-    #         return 0.0
-    #     valid_iou = [x for x in self.iou if isinstance(x, torch.Tensor)]
-    #     if not valid_iou:
-    #         return 0.0
-    #     return torch.cat(valid_iou).mean().item()
+        # 拼接所有批次的IoU张量（假设形状一致）
+        all_iou = torch.cat(self.iou)
+        return all_iou.mean().item()
 
     @property
     def mean_dice(self):
-        """计算平均Dice系数（新增）"""
+        """计算平均Dice系数"""
         if not self.dice:
             return 0.0
-        valid_dice = [x for x in self.dice if isinstance(x, torch.Tensor)]
-        return torch.cat(valid_dice).mean().item() if valid_dice else 0.0
-    # def mean_dice(self):
-    #     """计算所有类别的平均Dice"""
-    #     if not self.dice:
-    #         return 0.0
-    #     return torch.cat(self.dice).mean().item()
+        # 拼接所有批次的Dice张量
+        all_dice = torch.cat(self.dice)
+        return all_dice.mean().item()
 
-    def process(self, tp, tp_m, conf, pred_cls, target_cls,** kwargs):
+    def process(self, tp, tp_m, conf, pred_cls, target_cls):
         """
         Processes the detection and segmentation metrics over the given set of predictions.
 
@@ -1083,7 +1049,9 @@ class SegmentMetrics(SimpleClass):
             pred_cls (list): List of predicted classes.
             target_cls (list): List of target classes.
         """
-        super().process(self, tp_m=None,** kwargs)
+        target_cls = torch.cat(target_cls)
+        for c in range(self.nc):
+            self.nt_per_class[c] += (target_cls == c).sum().item()
         results_mask = ap_per_class(
             tp_m,
             conf,
@@ -1116,18 +1084,13 @@ class SegmentMetrics(SimpleClass):
         self.calculate_mask_metrics()
 
     def calculate_mask_metrics(self):
-        """计算掩码的Recall、Precision、mAP等指标"""
         if not self.tp_m:
             self.mask_recall = 0.0
             self.mask_precision = 0.0
             return
-        # 拼接所有批次的tp_m（掩码正确预测）
         tp_m = torch.cat(self.tp_m, 0).cpu().numpy()
-        # 计算每个IoU阈值下的Recall（召回率=正确预测数/总真实数）
         self.mask_recall = tp_m.sum(0) / (self.nt_per_class[:, None] + 1e-10)
-        # 计算每个IoU阈值下的Precision（精确率=正确预测数/总预测数）
         self.mask_precision = tp_m.sum(0) / (tp_m.sum(0) + (1 - tp_m).sum(0) + 1e-10)
-        # 此处可补充掩码mAP的计算逻辑（类似DetMetrics中的mAP计算）
 
     @property
     def results_dict(self):
