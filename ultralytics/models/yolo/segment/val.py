@@ -198,46 +198,88 @@ class SegmentationValidator(DetectionValidator):
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
 
+    # def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
+    #     """
+    #     Compute correct prediction matrix for a batch based on bounding boxes and optional masks.
+    #
+    #     Args:
+    #         detections (torch.Tensor): Tensor of shape (N, 6) representing detected bounding boxes and
+    #             associated confidence scores and class indices. Each row is of the format [x1, y1, x2, y2, conf, class].
+    #         gt_bboxes (torch.Tensor): Tensor of shape (M, 4) representing ground truth bounding box coordinates.
+    #             Each row is of the format [x1, y1, x2, y2].
+    #         gt_cls (torch.Tensor): Tensor of shape (M,) representing ground truth class indices.
+    #         pred_masks (torch.Tensor | None): Tensor representing predicted masks, if available. The shape should
+    #             match the ground truth masks.
+    #         gt_masks (torch.Tensor | None): Tensor of shape (M, H, W) representing ground truth masks, if available.
+    #         overlap (bool): Flag indicating if overlapping masks should be considered.
+    #         masks (bool): Flag indicating if the batch contains mask data.
+    #
+    #     Returns:
+    #         (torch.Tensor): A correct prediction matrix of shape (N, 10), where 10 represents different IoU levels.
+    #
+    #     Note:
+    #         - If `masks` is True, the function computes IoU between predicted and ground truth masks.
+    #         - If `overlap` is True and `masks` is True, overlapping masks are taken into account when computing IoU.
+    #
+    #     Example:
+    #         ```python
+    #         detections = torch.tensor([[25, 30, 200, 300, 0.8, 1], [50, 60, 180, 290, 0.75, 0]])
+    #         gt_bboxes = torch.tensor([[24, 29, 199, 299], [55, 65, 185, 295]])
+    #         gt_cls = torch.tensor([1, 0])
+    #         correct_preds = validator._process_batch(detections, gt_bboxes, gt_cls)
+    #         ```
+    #     """
+    #     if masks:
+    #         if overlap:
+    #             nl = len(gt_cls)
+    #             index = torch.arange(nl, device=gt_masks.device).view(nl, 1, 1) + 1
+    #             gt_masks = gt_masks.repeat(nl, 1, 1)  # shape(1,640,640) -> (n,640,640)
+    #             gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
+    #         if gt_masks.shape[1:] != pred_masks.shape[1:]:
+    #             gt_masks = F.interpolate(gt_masks[None], pred_masks.shape[1:], mode="bilinear", align_corners=False)[0]
+    #             gt_masks = gt_masks.gt_(0.5)
+    #         iou = mask_iou(gt_masks.view(gt_masks.shape[0], -1), pred_masks.view(pred_masks.shape[0], -1))
+    #     else:  # boxes
+    #         iou = box_iou(gt_bboxes, detections[:, :4])
+    #
+    #     return self.match_predictions(detections[:, 5], gt_cls, iou)
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
-        """
-        Compute correct prediction matrix for a batch based on bounding boxes and optional masks.
-
-        Args:
-            detections (torch.Tensor): Tensor of shape (N, 6) representing detected bounding boxes and
-                associated confidence scores and class indices. Each row is of the format [x1, y1, x2, y2, conf, class].
-            gt_bboxes (torch.Tensor): Tensor of shape (M, 4) representing ground truth bounding box coordinates.
-                Each row is of the format [x1, y1, x2, y2].
-            gt_cls (torch.Tensor): Tensor of shape (M,) representing ground truth class indices.
-            pred_masks (torch.Tensor | None): Tensor representing predicted masks, if available. The shape should
-                match the ground truth masks.
-            gt_masks (torch.Tensor | None): Tensor of shape (M, H, W) representing ground truth masks, if available.
-            overlap (bool): Flag indicating if overlapping masks should be considered.
-            masks (bool): Flag indicating if the batch contains mask data.
-
-        Returns:
-            (torch.Tensor): A correct prediction matrix of shape (N, 10), where 10 represents different IoU levels.
-
-        Note:
-            - If `masks` is True, the function computes IoU between predicted and ground truth masks.
-            - If `overlap` is True and `masks` is True, overlapping masks are taken into account when computing IoU.
-
-        Example:
-            ```python
-            detections = torch.tensor([[25, 30, 200, 300, 0.8, 1], [50, 60, 180, 290, 0.75, 0]])
-            gt_bboxes = torch.tensor([[24, 29, 199, 299], [55, 65, 185, 295]])
-            gt_cls = torch.tensor([1, 0])
-            correct_preds = validator._process_batch(detections, gt_bboxes, gt_cls)
-            ```
-        """
+        """Compute correct prediction matrix for a batch based on bounding boxes and optional masks."""
         if masks:
+            # 关键修正：确保pred_masks的空间维度为2D
+            if pred_masks.ndim == 2:  # 形状为[N, H]，缺失宽度维度
+                pred_masks = pred_masks.unsqueeze(2)  # 变为[N, H, 1]
+                # 扩展宽度维度以匹配高度（假设宽=高）
+                pred_masks = pred_masks.expand(-1, -1, pred_masks.shape[1])  # 变为[N, H, H]
+            elif len(pred_masks.shape[1:]) == 1:  # 空间维度为1D（如[H]）
+                h = pred_masks.shape[1]
+                pred_masks = pred_masks.view(pred_masks.shape[0], h, h)  # 重塑为[N, H, H]
+
             if overlap:
                 nl = len(gt_cls)
                 index = torch.arange(nl, device=gt_masks.device).view(nl, 1, 1) + 1
-                gt_masks = gt_masks.repeat(nl, 1, 1)  # shape(1,640,640) -> (n,640,640)
+                gt_masks = gt_masks.repeat(nl, 1, 1)
                 gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
+
+            # 确保gt_masks和pred_masks的空间维度数量一致
+            if len(gt_masks.shape[1:]) != len(pred_masks.shape[1:]):
+                # 若gt_masks为2D，pred_masks为1D，则扩展pred_masks
+                if len(pred_masks.shape[1:]) == 1:
+                    pred_masks = pred_masks.unsqueeze(2).expand(-1, -1, gt_masks.shape[2])
+                # 若gt_masks为1D，pred_masks为2D，则扩展gt_masks
+                elif len(gt_masks.shape[1:]) == 1:
+                    gt_masks = gt_masks.unsqueeze(2).expand(-1, -1, pred_masks.shape[2])
+
+            # 执行插值（此时两者空间维度数量已一致）
             if gt_masks.shape[1:] != pred_masks.shape[1:]:
-                gt_masks = F.interpolate(gt_masks[None], pred_masks.shape[1:], mode="bilinear", align_corners=False)[0]
+                gt_masks = F.interpolate(
+                    gt_masks[None],
+                    size=pred_masks.shape[1:],  # 确保size是2D元组
+                    mode="bilinear",
+                    align_corners=False
+                )[0]
                 gt_masks = gt_masks.gt_(0.5)
+
             iou = mask_iou(gt_masks.view(gt_masks.shape[0], -1), pred_masks.view(pred_masks.shape[0], -1))
         else:  # boxes
             iou = box_iou(gt_bboxes, detections[:, :4])
