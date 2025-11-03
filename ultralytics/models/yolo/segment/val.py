@@ -96,6 +96,7 @@ class SegmentationValidator(DetectionValidator):
         """Prepares a batch for training or inference by processing images and targets."""
         predn = super()._prepare_pred(pred, pbatch)
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=pbatch["imgsz"])
+        pred_masks = pred_masks.permute(2, 0, 1).contiguous()
         return predn, pred_masks
 
     def update_metrics(self, preds, batch):
