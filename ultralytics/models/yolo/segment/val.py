@@ -261,16 +261,16 @@ class SegmentationValidator(DetectionValidator):
                 gt_masks = gt_masks.repeat(nl, 1, 1)
                 gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
 
-            # 确保gt_masks和pred_masks的空间维度数量一致
+            if gt_masks.shape[1:] != pred_masks.shape[1:]:
+                gt_masks = F.interpolate(gt_masks[None], pred_masks.shape[1:], mode="bilinear", align_corners=False)[0]
+                gt_masks = gt_masks.gt_(0.5)
+
             if len(gt_masks.shape[1:]) != len(pred_masks.shape[1:]):
-                # 若gt_masks为2D，pred_masks为1D，则扩展pred_masks
                 if len(pred_masks.shape[1:]) == 1:
                     pred_masks = pred_masks.unsqueeze(2).expand(-1, -1, gt_masks.shape[2])
-                # 若gt_masks为1D，pred_masks为2D，则扩展gt_masks
                 elif len(gt_masks.shape[1:]) == 1:
                     gt_masks = gt_masks.unsqueeze(2).expand(-1, -1, pred_masks.shape[2])
 
-            # 执行插值（此时两者空间维度数量已一致）
             if gt_masks.shape[1:] != pred_masks.shape[1:]:
                 gt_masks = F.interpolate(
                     gt_masks[None],
