@@ -193,8 +193,8 @@ class SegmentationValidator(DetectionValidator):
         """Sets speed and confusion matrix for evaluation metrics."""
         super().finalize_metrics(*args, **kwargs)
         # 新增：计算并存储平均IoU和Dice
-        self.metrics.mean_iou = self.metrics.mean_iou
-        self.metrics.mean_dice = self.metrics.mean_dice
+        # self.metrics.mean_iou = self.metrics.mean_iou
+        # self.metrics.mean_dice = self.metrics.mean_dice
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
 
