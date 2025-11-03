@@ -180,6 +180,8 @@ def class_iou_dice(gt_masks, pred_masks, num_classes, eps=1e-7):
     Returns:
         tuple: (每个类别的IoU, 每个类别的Dice, 平均IoU, 平均Dice)
     """
+    if num_classes == 0:
+        return [], [], 0.0, 0.0
     ious = []
     dices = []
     for c in range(num_classes):
