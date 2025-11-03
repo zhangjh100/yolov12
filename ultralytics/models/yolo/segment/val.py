@@ -179,7 +179,7 @@ class SegmentationValidator(DetectionValidator):
             # Evaluate
             if nl:
                 stat["tp"] = self._process_batch(predn, bbox, cls)
-                stat["tp_m"] = self._process_batch(
+                stat["tp_m"], mask_iou_values = self._process_batch(
                     predn, bbox, cls, pred_masks, gt_masks, self.args.overlap_mask, masks=True
                 )
                 if gt_masks is not None and len(gt_masks) > 0:  # 检查地面真值掩码是否存在
