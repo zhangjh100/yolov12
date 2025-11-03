@@ -169,42 +169,83 @@ def mask_dice(mask1, mask2, eps=1e-7):
     return (2.0 * intersection) / (union + eps)
 
 
-def class_iou_dice(gt_masks, pred_masks, num_classes, eps=1e-7):
-    """
-    计算每个类别的IoU和Dice系数
-    Args:
-        gt_masks (torch.Tensor): 真实掩码 (N, H, W)，值为类别索引
-        pred_masks (torch.Tensor): 预测掩码 (N, H, W)，值为类别索引
-        num_classes (int): 类别总数
-        eps (float): 防止除零的微小值
-    Returns:
-        tuple: (每个类别的IoU, 每个类别的Dice, 平均IoU, 平均Dice)
-    """
+# def class_iou_dice(gt_masks, pred_masks, num_classes, eps=1e-7):
+#     """
+#     计算每个类别的IoU和Dice系数
+#     Args:
+#         gt_masks (torch.Tensor): 真实掩码 (N, H, W)，值为类别索引
+#         pred_masks (torch.Tensor): 预测掩码 (N, H, W)，值为类别索引
+#         num_classes (int): 类别总数
+#         eps (float): 防止除零的微小值
+#     Returns:
+#         tuple: (每个类别的IoU, 每个类别的Dice, 平均IoU, 平均Dice)
+#     """
+#     gt_masks = np.asarray(gt_masks)
+#     pred_masks = np.asarray(pred_masks)
+#     if num_classes == 0:
+#         return [], [], 0.0, 0.0
+#     ious = []
+#     dices = []
+#     for c in range(num_classes):
+#         # 提取当前类别的真实掩码和预测掩码（二值化）
+#         gt = (gt_masks == c).float().view(gt_masks.shape[0], -1)  # (N, H*W)
+#         pred = (pred_masks == c).float().view(pred_masks.shape[0], -1)  # (N, H*W)
+#
+#         # 计算该类别的IoU和Dice（取平均值）
+#         if gt.sum() == 0 and pred.sum() == 0:
+#             iou = 1.0  # 空掩码视为完全匹配
+#             dice = 1.0
+#         else:
+#             iou = mask_iou(gt, pred).mean().item()
+#             dice = mask_dice(gt, pred).mean().item()
+#         ious.append(iou)
+#         dices.append(dice)
+#
+#     return (
+#         torch.tensor(ious, device=gt_masks.device),
+#         torch.tensor(dices, device=gt_masks.device),
+#         sum(ious) / num_classes,
+#         sum(dices) / num_classes
+#     )
+def class_iou_dice(gt_mask, pred_mask, num_classes=None):
+    """计算每个类别的 IoU 和 Dice，并返回平均值"""
+    # 确保输入是 numpy 数组
+    gt_mask = np.asarray(gt_mask)
+    pred_mask = np.asarray(pred_mask)
+
+    # 自动获取类别（如果未指定）
+    if num_classes is None:
+        classes = np.unique(np.concatenate([gt_mask, pred_mask]))
+        num_classes = len(classes)
+    else:
+        classes = np.arange(num_classes)
+
+    # 处理无类别情况（避免除以零）
     if num_classes == 0:
-        return [], [], 0.0, 0.0
+        return [], [], 0.0, 0.0  # 空列表和 0 均值
+
     ious = []
     dices = []
-    for c in range(num_classes):
-        # 提取当前类别的真实掩码和预测掩码（二值化）
-        gt = (gt_masks == c).float().view(gt_masks.shape[0], -1)  # (N, H*W)
-        pred = (pred_masks == c).float().view(pred_masks.shape[0], -1)  # (N, H*W)
+    for cls in classes:
+        # 提取当前类别的掩码
+        gt = (gt_mask == cls).astype(np.float32)
+        pred = (pred_mask == cls).astype(np.float32)
 
-        # 计算该类别的IoU和Dice（取平均值）
-        if gt.sum() == 0 and pred.sum() == 0:
-            iou = 1.0  # 空掩码视为完全匹配
-            dice = 1.0
-        else:
-            iou = mask_iou(gt, pred).mean().item()
-            dice = mask_dice(gt, pred).mean().item()
+        # 计算交并比
+        intersection = np.sum(gt * pred)
+        union = np.sum(gt) + np.sum(pred) - intersection
+        iou = intersection / (union + 1e-7)  # 加 eps 避免除零
         ious.append(iou)
+
+        # 计算 Dice 系数
+        dice = (2. * intersection) / (np.sum(gt) + np.sum(pred) + 1e-7)
         dices.append(dice)
 
-    return (
-        torch.tensor(ious, device=gt_masks.device),
-        torch.tensor(dices, device=gt_masks.device),
-        sum(ious) / num_classes,
-        sum(dices) / num_classes
-    )
+    # 计算平均 IoU 和 Dice（确保 num_classes 不为 0）
+    mean_iou = sum(ious) / num_classes if num_classes != 0 else 0.0
+    mean_dice = sum(dices) / num_classes if num_classes != 0 else 0.0
+
+    return ious, dices, mean_iou, mean_dice
 
 def kpt_iou(kpt1, kpt2, area, sigma, eps=1e-7):
     """
