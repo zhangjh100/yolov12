@@ -1019,8 +1019,9 @@ class SegmentMetrics(SimpleClass):
         results_dict: Returns the dictionary containing all the detection and segmentation metrics and fitness score.
     """
 
-    def __init__(self, save_dir=Path("."), plot=False, on_plot=None, names=()) -> None:
+    def __init__(self, save_dir=Path("."), plot=False, on_plot=None, names=(), *args, **kwargs) -> None:
         """Initialize a SegmentMetrics instance with a save directory, plot flag, callback function, and class names."""
+        super().__init__(self, *args, **kwargs)
         self.save_dir = save_dir
         self.plot = plot
         self.on_plot = on_plot
