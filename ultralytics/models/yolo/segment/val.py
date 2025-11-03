@@ -183,7 +183,7 @@ class SegmentationValidator(DetectionValidator):
                     predn, bbox, cls, pred_masks, gt_masks, self.args.overlap_mask, masks=True
                 )
                 if gt_masks is not None and len(gt_masks) > 0:  # 检查地面真值掩码是否存在
-                    dice = 2 * iou / (iou + 1e-10)  # Dice系数计算公式
+                    dice = 2 * mask_iou_values / (mask_iou_values + 1e-10)  # Dice系数计算公式
                     self.metrics.dice.append(dice.flatten())
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, bbox, cls)
@@ -303,13 +303,15 @@ class SegmentationValidator(DetectionValidator):
                 gt_masks = gt_masks.gt_(0.5)
 
             iou = mask_iou(gt_masks.reshape(gt_masks.shape[0], -1), pred_masks.reshape(pred_masks.shape[0], -1).float())
-            self.metrics.iou.append(iou.flatten())
+            # self.metrics.iou.append(iou.flatten())
             iou = iou.to(detections.device)
+            tp_m = self.match_predictions(detections[:, 5], gt_cls, iou)
+            return tp_m, iou
         else:  # boxes
             iou = box_iou(gt_bboxes, detections[:, :4])
             iou = iou.to(detections.device)
 
-        return self.match_predictions(detections[:, 5], gt_cls, iou)
+            return self.match_predictions(detections[:, 5], gt_cls, iou)
 
     def plot_val_samples(self, batch, ni):
         """Plots validation samples with bounding box labels."""
