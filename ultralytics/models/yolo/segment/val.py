@@ -114,11 +114,7 @@ class SegmentationValidator(DetectionValidator):
             nl = len(cls)
             stat["target_cls"] = cls
             stat["target_img"] = cls.unique()
-            gt_masks = batch["masks"][si].cpu().long()  # 假设形状为 (H, W)，值为类别索引
-            pred_masks = pred_masks.argmax(dim=0).cpu().long()  # 预测掩码取最大概率类别，形状为 (H, W)
 
-            # 新增：更新IoU和Dice指标
-            self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
             if npr == 0:
                 if nl:
                     for k in self.stats.keys():
@@ -133,6 +129,10 @@ class SegmentationValidator(DetectionValidator):
             if self.args.single_cls:
                 pred[:, 5] = 0
             predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
+            gt_masks = batch["masks"][si].cpu().long()
+            pred_masks = pred_masks.argmax(dim=0).cpu().long()
+            self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
+
             stat["conf"] = predn[:, 4]
             stat["pred_cls"] = predn[:, 5]
 
