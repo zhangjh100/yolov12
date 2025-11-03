@@ -1072,7 +1072,7 @@ class SegmentMetrics(SimpleClass):
     #         return 0.0
     #     return torch.cat(self.dice).mean().item()
 
-    def process(self, tp, tp_m, conf, pred_cls, target_cls):
+    def process(self, tp, tp_m, conf, pred_cls, target_cls,** kwargs):
         """
         Processes the detection and segmentation metrics over the given set of predictions.
 
@@ -1083,6 +1083,7 @@ class SegmentMetrics(SimpleClass):
             pred_cls (list): List of predicted classes.
             target_cls (list): List of target classes.
         """
+        super().process(self, tp_m=None,** kwargs)
         results_mask = ap_per_class(
             tp_m,
             conf,
