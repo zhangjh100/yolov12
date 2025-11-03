@@ -1029,6 +1029,7 @@ class SegmentMetrics(SimpleClass):
         self.seg = Metric()
         self.iou = []
         self.dice = []
+        self.tp_m = []
         self.nc = len(names)
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "segment"
@@ -1127,20 +1128,30 @@ class SegmentMetrics(SimpleClass):
         # 此处可补充掩码mAP的计算逻辑（类似DetMetrics中的mAP计算）
 
     @property
-    def keys(self):
-        """Returns a list of keys for accessing metrics."""
-        return [
-            "metrics/precision(B)",
-            "metrics/recall(B)",
-            "metrics/mAP50(B)",
-            "metrics/mAP50-95(B)",
-            "metrics/precision(M)",
-            "metrics/recall(M)",
-            "metrics/mAP50(M)",
-            "metrics/mAP50-95(M)",
-            "metrics/IoU(M)",
-            "metrics/Dice(M)"
-        ]
+    def results_dict(self):
+        """扩展结果字典，包含掩码指标"""
+        base_dict = super().results_dict  # 边界框指标
+        mask_dict = {
+            "mask_P": self.mask_precision.mean() if hasattr(self, 'mask_precision') else 0.0,
+            "mask_R": self.mask_recall.mean() if hasattr(self, 'mask_recall') else 0.0,
+            "mask_mIoU": self.mean_iou,
+            "mask_Dice": self.mean_dice
+        }
+        return {**base_dict, **mask_dict}
+    # def keys(self):
+    #     """Returns a list of keys for accessing metrics."""
+    #     return [
+    #         "metrics/precision(B)",
+    #         "metrics/recall(B)",
+    #         "metrics/mAP50(B)",
+    #         "metrics/mAP50-95(B)",
+    #         "metrics/precision(M)",
+    #         "metrics/recall(M)",
+    #         "metrics/mAP50(M)",
+    #         "metrics/mAP50-95(M)",
+    #         "metrics/IoU(M)",
+    #         "metrics/Dice(M)"
+    #     ]
 
     def mean_results(self):
         """Return the mean metrics for bounding box and segmentation results."""
