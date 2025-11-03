@@ -261,10 +261,6 @@ class SegmentationValidator(DetectionValidator):
                 gt_masks = gt_masks.repeat(nl, 1, 1)
                 gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
 
-            if gt_masks.shape[1:] != pred_masks.shape[1:]:
-                gt_masks = F.interpolate(gt_masks[None], pred_masks.shape[1:], mode="bilinear", align_corners=False)[0]
-                gt_masks = gt_masks.gt_(0.5)
-
             if len(gt_masks.shape[1:]) != len(pred_masks.shape[1:]):
                 if len(pred_masks.shape[1:]) == 1:
                     pred_masks = pred_masks.unsqueeze(2).expand(-1, -1, gt_masks.shape[2])
@@ -280,7 +276,7 @@ class SegmentationValidator(DetectionValidator):
                 )[0]
                 gt_masks = gt_masks.gt_(0.5)
 
-            iou = mask_iou(gt_masks.reshape(gt_masks.shape[0], -1), pred_masks.reshape(pred_masks.shape[0], -1))
+            iou = mask_iou(gt_masks.reshape(gt_masks.shape[0], -1), pred_masks.reshape(pred_masks.shape[0], -1).float())
         else:  # boxes
             iou = box_iou(gt_bboxes, detections[:, :4])
 
