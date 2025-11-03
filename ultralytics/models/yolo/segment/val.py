@@ -280,7 +280,7 @@ class SegmentationValidator(DetectionValidator):
                 )[0]
                 gt_masks = gt_masks.gt_(0.5)
 
-            iou = mask_iou(gt_masks.shape[gt_masks.shape[0], -1], pred_masks.shape[pred_masks.shape[0], -1])
+            iou = mask_iou(gt_masks.reshape(gt_masks.shape[0], -1), pred_masks.reshape(pred_masks.shape[0], -1))
         else:  # boxes
             iou = box_iou(gt_bboxes, detections[:, :4])
 
