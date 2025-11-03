@@ -66,6 +66,8 @@ class SegmentationValidator(DetectionValidator):
             "R",
             "mAP50",
             "mAP50-95)",
+            "IoU",
+            "Dice",
         )
 
     def postprocess(self, preds):
@@ -112,6 +114,11 @@ class SegmentationValidator(DetectionValidator):
             nl = len(cls)
             stat["target_cls"] = cls
             stat["target_img"] = cls.unique()
+            gt_masks = batch["masks"][si].cpu().long()  # 假设形状为 (H, W)，值为类别索引
+            pred_masks = pred_masks.argmax(dim=0).cpu().long()  # 预测掩码取最大概率类别，形状为 (H, W)
+
+            # 新增：更新IoU和Dice指标
+            self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
             if npr == 0:
                 if nl:
                     for k in self.stats.keys():
@@ -167,6 +174,10 @@ class SegmentationValidator(DetectionValidator):
 
     def finalize_metrics(self, *args, **kwargs):
         """Sets speed and confusion matrix for evaluation metrics."""
+        super().finalize_metrics(*args, **kwargs)
+        # 新增：计算并存储平均IoU和Dice
+        self.metrics.mean_iou = self.metrics.mean_iou
+        self.metrics.mean_dice = self.metrics.mean_dice
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
 

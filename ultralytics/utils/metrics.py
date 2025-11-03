@@ -153,6 +153,57 @@ def mask_iou(mask1, mask2, eps=1e-7):
     return intersection / (union + eps)
 
 
+# 在mask_iou函数下方添加
+def mask_dice(mask1, mask2, eps=1e-7):
+    """
+    计算掩码的Dice系数（2*交集 / (预测面积 + 真实面积)）
+    Args:
+        mask1 (torch.Tensor): 真实掩码 (N, H*W)
+        mask2 (torch.Tensor): 预测掩码 (M, H*W)
+        eps (float): 防止除零的微小值
+    Returns:
+        torch.Tensor: (N, M) 形状的Dice系数
+    """
+    intersection = torch.matmul(mask1, mask2.T).clamp_(0)  # 交集
+    union = mask1.sum(1)[:, None] + mask2.sum(1)[None]  # 预测面积 + 真实面积
+    return (2.0 * intersection) / (union + eps)
+
+
+def class_iou_dice(gt_masks, pred_masks, num_classes, eps=1e-7):
+    """
+    计算每个类别的IoU和Dice系数
+    Args:
+        gt_masks (torch.Tensor): 真实掩码 (N, H, W)，值为类别索引
+        pred_masks (torch.Tensor): 预测掩码 (N, H, W)，值为类别索引
+        num_classes (int): 类别总数
+        eps (float): 防止除零的微小值
+    Returns:
+        tuple: (每个类别的IoU, 每个类别的Dice, 平均IoU, 平均Dice)
+    """
+    ious = []
+    dices = []
+    for c in range(num_classes):
+        # 提取当前类别的真实掩码和预测掩码（二值化）
+        gt = (gt_masks == c).float().view(gt_masks.shape[0], -1)  # (N, H*W)
+        pred = (pred_masks == c).float().view(pred_masks.shape[0], -1)  # (N, H*W)
+
+        # 计算该类别的IoU和Dice（取平均值）
+        if gt.sum() == 0 and pred.sum() == 0:
+            iou = 1.0  # 空掩码视为完全匹配
+            dice = 1.0
+        else:
+            iou = mask_iou(gt, pred).mean().item()
+            dice = mask_dice(gt, pred).mean().item()
+        ious.append(iou)
+        dices.append(dice)
+
+    return (
+        torch.tensor(ious, device=gt_masks.device),
+        torch.tensor(dices, device=gt_masks.device),
+        sum(ious) / num_classes,
+        sum(dices) / num_classes
+    )
+
 def kpt_iou(kpt1, kpt2, area, sigma, eps=1e-7):
     """
     Calculate Object Keypoint Similarity (OKS).
@@ -933,8 +984,33 @@ class SegmentMetrics(SimpleClass):
         self.names = names
         self.box = Metric()
         self.seg = Metric()
+        self.iou = []
+        self.dice = []
+        self.nc = len(names)
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "segment"
+
+    def update_iou_dice(self, gt_masks, pred_masks):
+        """更新IoU和Dice指标"""
+        class_ious, class_dices, mean_iou, mean_dice = class_iou_dice(
+            gt_masks, pred_masks, self.nc
+        )
+        self.iou.append(class_ious)
+        self.dice.append(class_dices)
+
+    @property
+    def mean_iou(self):
+        """计算所有类别的平均IoU"""
+        if not self.iou:
+            return 0.0
+        return torch.cat(self.iou).mean().item()
+
+    @property
+    def mean_dice(self):
+        """计算所有类别的平均Dice"""
+        if not self.dice:
+            return 0.0
+        return torch.cat(self.dice).mean().item()
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
         """
