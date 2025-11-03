@@ -1049,8 +1049,8 @@ class SegmentMetrics(SimpleClass):
         valid_iou = [x for x in self.iou if isinstance(x, torch.Tensor)]
         if not valid_iou:
             return 0.0
-        # return torch.cat(self.iou).mean().item()
-        return torch.cat(valid_iou).mean().item()
+        return torch.cat(self.iou).mean().item()
+        # return torch.cat(valid_iou).mean().item()
 
     @property
     def mean_dice(self):
