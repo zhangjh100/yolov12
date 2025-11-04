@@ -998,13 +998,17 @@ class SegmentMetrics(SimpleClass):
         self.names = names
         self.box = Metric()
         self.seg = Metric()
-        self.iou = []
-        self.dice = []
-        self.tp_m = []
+        self.iou_scores = []
+        self.dice_scores = []
+        # self.tp_m = []
         self.nc = len(names)
         self.nt_per_class = torch.zeros(self.nc, dtype=torch.float32)  # 初始化每个类别的真实样本数
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "segment"
+
+    def process_iou_dice(self, iou, dice):
+        self.iou_scores.append(iou)
+        self.dice_scores.append(dice)
 
     def update_iou_dice(self, gt_masks, pred_masks):
         """更新IoU和Dice指标（确保输入为张量且维度匹配）"""
@@ -1022,21 +1026,15 @@ class SegmentMetrics(SimpleClass):
 
     @property
     def mean_iou(self):
-        """计算平均IoU（处理张量拼接）"""
-        if not self.iou:
+        if not self.iou_scores:
             return 0.0
-        # 拼接所有批次的IoU张量（假设形状一致）
-        all_iou = torch.cat(self.iou)
-        return all_iou.mean().item()
+        return np.concatenate(self.iou_scores).mean()
 
     @property
     def mean_dice(self):
-        """计算平均Dice系数"""
-        if not self.dice:
+        if not self.dice_scores:
             return 0.0
-        # 拼接所有批次的Dice张量
-        all_dice = torch.cat(self.dice)
-        return all_dice.mean().item()
+        return np.concatenate(self.dice_scores).mean()
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
         """

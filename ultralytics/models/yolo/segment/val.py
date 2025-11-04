@@ -69,25 +69,21 @@ class SegmentationValidator(DetectionValidator):
         )
 
     def get_stats(self):
-        """获取并处理统计数据，传递tp_m给metrics"""
         stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in self.stats.items()}  # 拼接所有批次数据
         self.nt_per_class = np.bincount(stats["target_cls"].astype(int), minlength=self.nc)  # 总真实目标数
         if len(stats) and "tp_m" in stats and stats["tp_m"].any():
-            # 将掩码相关统计数据传入metrics
             self.metrics.process(
+                tp=stats["tp"],
                 tp_m=stats["tp_m"],
                 conf=stats["conf"],
                 pred_cls=stats["pred_cls"],
                 target_cls=stats["target_cls"],
-                nt_per_class=self.nt_per_class
+                # nt_per_class=self.nt_per_class
             )
         return self.metrics.results_dict
 
     def print_results(self):
-        """打印掩码指标结果"""
-        # 调用父类方法打印边界框指标
         super().print_results()
-        # 打印掩码指标
         LOGGER.info(f"Mask metrics: P={self.metrics.mask_precision.mean():.3f}, "
                     f"R={self.metrics.mask_recall.mean():.3f}, "
                     f"mIoU={self.metrics.mean_iou:.3f}, "
@@ -182,8 +178,16 @@ class SegmentationValidator(DetectionValidator):
                 stat["tp_m"], mask_iou_values = self._process_batch(
                     predn, bbox, cls, pred_masks, gt_masks, self.args.overlap_mask, masks=True
                 )
-                if gt_masks is not None and len(gt_masks) > 0:  # 检查地面真值掩码是否存在
-                    dice = 2 * mask_iou_values / (mask_iou_values + 1e-10)  # Dice系数计算公式
+                if gt_masks is not None and len(gt_masks) > 0 and mask_iou_values.num1() > 0:
+                    gt_flat = gt_masks.view(gt_masks.shape[0], -1).float()
+                    pred_flat = pred_masks.view(pred_masks.shape[0], -1).float()
+                    intersection = (gt_flat * pred_flat).sum(dim=1)
+                    area_sum = gt_flat.sum(dim=1) + pred_flat.sum(dim=1)
+                    dice = 2 * intersection / (area_sum + 1e-10)
+                    self.metrics.process_iou_dice(
+                        mask_iou_values.cpu().numpy().flatten(),
+                        dice.cpu().numpy().flatten()
+                    )
                     self.metrics.dice.append(dice.flatten())
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, bbox, cls)
@@ -270,47 +274,44 @@ class SegmentationValidator(DetectionValidator):
     #
     #     return self.match_predictions(detections[:, 5], gt_cls, iou)
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
-        """Compute correct prediction matrix for a batch based on bounding boxes and optional masks."""
         if masks:
-            # 关键修正：确保pred_masks的空间维度为2D
-            if pred_masks.ndim == 2:  # 形状为[N, H]，缺失宽度维度
-                pred_masks = pred_masks.unsqueeze(2)  # 变为[N, H, 1]
-                # 扩展宽度维度以匹配高度（假设宽=高）
-                pred_masks = pred_masks.expand(-1, -1, pred_masks.shape[1])  # 变为[N, H, H]
-            elif len(pred_masks.shape[1:]) == 1:  # 空间维度为1D（如[H]）
-                h = pred_masks.shape[1]
-                pred_masks = pred_masks.view(pred_masks.shape[0], h, h)  # 重塑为[N, H, H]
+            if pred_masks.ndim == 2:
+                pred_masks = pred_masks.unsqueeze(0)
+            if pred_masks.ndim != 3:
+                raise ValueError(f"pred_masks must be 3D (N, H, W), got {pred_masks.shape}")
 
-            if overlap:
-                nl = len(gt_cls)
-                index = torch.arange(nl, device=gt_masks.device).view(nl, 1, 1) + 1
-                gt_masks = gt_masks.repeat(nl, 1, 1)
-                gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
+            if gt_masks.ndim == 2:
+                gt_masks = gt_masks.unsqueeze(0)
 
-            if len(gt_masks.shape[1:]) != len(pred_masks.shape[1:]):
-                if len(pred_masks.shape[1:]) == 1:
-                    pred_masks = pred_masks.unsqueeze(2).expand(-1, -1, gt_masks.shape[2])
-                elif len(gt_masks.shape[1:]) == 1:
-                    gt_masks = gt_masks.unsqueeze(2).expand(-1, -1, pred_masks.shape[2])
+            # if overlap:
+            #     nl = len(gt_cls)
+            #     index = torch.arange(nl, device=gt_masks.device).view(nl, 1, 1) + 1
+            #     gt_masks = gt_masks.repeat(nl, 1, 1)
+            #     gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
+
+            # if len(gt_masks.shape[1:]) != len(pred_masks.shape[1:]):
+            #     if len(pred_masks.shape[1:]) == 1:
+            #         pred_masks = pred_masks.unsqueeze(2).expand(-1, -1, gt_masks.shape[2])
+            #     elif len(gt_masks.shape[1:]) == 1:
+            #         gt_masks = gt_masks.unsqueeze(2).expand(-1, -1, pred_masks.shape[2])
 
             if gt_masks.shape[1:] != pred_masks.shape[1:]:
                 gt_masks = F.interpolate(
-                    gt_masks[None],
+                    gt_masks.unsqueeze(0),
                     size=pred_masks.shape[1:],  # 确保size是2D元组
                     mode="bilinear",
                     align_corners=False
-                )[0]
+                ).squeeze(0)
                 gt_masks = gt_masks.gt_(0.5)
 
-            iou = mask_iou(gt_masks.reshape(gt_masks.shape[0], -1), pred_masks.reshape(pred_masks.shape[0], -1).float())
-            # self.metrics.iou.append(iou.flatten())
-            iou = iou.to(detections.device)
+            iou = mask_iou(
+                gt_masks.view(gt_masks.shape[0], -1),
+                pred_masks.view(pred_masks.shape[0], -1).float()
+            )
             tp_m = self.match_predictions(detections[:, 5], gt_cls, iou)
             return tp_m, iou
         else:  # boxes
             iou = box_iou(gt_bboxes, detections[:, :4])
-            iou = iou.to(detections.device)
-
             return self.match_predictions(detections[:, 5], gt_cls, iou)
 
     def plot_val_samples(self, batch, ni):
