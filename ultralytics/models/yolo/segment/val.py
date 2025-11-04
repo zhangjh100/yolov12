@@ -162,7 +162,6 @@ class SegmentationValidator(DetectionValidator):
                 pred[:, 5] = 0
 
             predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
-            print(gt_masks.shape, pred_masks.shape)
             gt_masks = batch["masks"][si].cpu().long()
             pred_masks = pred_masks.argmax(dim=0).cpu().long()
             self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
@@ -241,7 +240,8 @@ class SegmentationValidator(DetectionValidator):
 
             iou = mask_iou(
                 gt_masks.view(gt_masks.shape[0], -1),
-                pred_masks.view(pred_masks.shape[0], -1).float()
+                pred_masks.view(pred_masks.shape[0], -1)
+                # pred_masks.view(pred_masks.shape[0], -1).float()
             )
             tp_m = self.match_predictions(detections[:, 5], gt_cls, iou)
             return tp_m, iou
