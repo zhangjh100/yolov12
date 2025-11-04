@@ -222,6 +222,7 @@ class SegmentationValidator(DetectionValidator):
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
         if masks:
             if pred_masks.ndim == 2:
+                print(pred_masks.shape)
                 pred_masks = pred_masks.unsqueeze(0)
             if pred_masks.ndim != 3:
                 raise ValueError(f"pred_masks must be 3D (N, H, W), got {pred_masks.shape}")
@@ -241,8 +242,8 @@ class SegmentationValidator(DetectionValidator):
             iou = mask_iou(
                 gt_masks.view(gt_masks.shape[0], -1),
                 pred_masks.view(pred_masks.shape[0], -1)
-                # pred_masks.view(pred_masks.shape[0], -1).float()
             )
+            iou = iou.to(gt_cls.device)
             tp_m = self.match_predictions(detections[:, 5], gt_cls, iou)
             return tp_m, iou
         else:
