@@ -173,7 +173,7 @@ class SegmentationValidator(DetectionValidator):
                 stat["tp_m"], mask_iou_values = self._process_batch(
                     predn, bbox, cls, pred_masks, gt_masks, self.args.overlap_mask, masks=True
                 )
-                if gt_masks is not None and len(gt_masks) > 0 and mask_iou_values.num1() > 0:
+                if gt_masks is not None and len(gt_masks) > 0 and mask_iou_values.numel() > 0:
                     gt_flat = gt_masks.view(gt_masks.shape[0], -1).float()
                     pred_flat = pred_masks.view(pred_masks.shape[0], -1).float()
                     intersection = (gt_flat * pred_flat).sum(dim=1)
@@ -222,7 +222,6 @@ class SegmentationValidator(DetectionValidator):
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
         if masks:
             if pred_masks.ndim == 2:
-                print(pred_masks.shape)
                 pred_masks = pred_masks.unsqueeze(0)
             if pred_masks.ndim != 3:
                 raise ValueError(f"pred_masks must be 3D (N, H, W), got {pred_masks.shape}")
