@@ -183,7 +183,7 @@ class SegmentationValidator(DetectionValidator):
                         mask_iou_values.cpu().numpy().flatten(),
                         dice.cpu().numpy().flatten()
                     )
-                    self.metrics.dice.append(dice.flatten())
+                    self.metrics.dice_scores.append(dice.flatten())
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, bbox, cls)
 
