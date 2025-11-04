@@ -1021,8 +1021,8 @@ class SegmentMetrics(SimpleClass):
         class_ious, class_dices, mean_iou, mean_dice = class_iou_dice(
             gt_masks, pred_masks, self.nc
         )
-        self.iou.append(class_ious)  # 现在存储的是张量
-        self.dice.append(class_dices)
+        self.iou_scores.append(class_ious)
+        self.dice_scores.append(class_dices)
 
     @property
     def mean_iou(self):
