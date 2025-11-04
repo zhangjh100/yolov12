@@ -123,6 +123,7 @@ class SegmentationValidator(DetectionValidator):
         h, w = imgsz
 
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=imgsz)
+        print("process后形状：", pred_masks.shape)
         if pred_masks.ndim == 3:
             pred_masks = pred_masks.permute(1, 0, 2).contiguous()
         else:
