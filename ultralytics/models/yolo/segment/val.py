@@ -81,7 +81,7 @@ class SegmentationValidator(DetectionValidator):
                 conf=stats["conf"],
                 pred_cls=stats["pred_cls"],
                 target_cls=stats["target_cls"],
-                nt_per_class=self.nt_per_class
+                # nt_per_class=self.nt_per_class
             )
         return self.metrics.results_dict
 
