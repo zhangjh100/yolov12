@@ -123,7 +123,7 @@ class SegmentationValidator(DetectionValidator):
         h, w = imgsz
 
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=imgsz)
-        print("process后形状：", pred_masks.shape)
+        #   the shape of pred_masks is correct
         if pred_masks.ndim == 3:
             pred_masks = pred_masks.permute(1, 0, 2).contiguous()
         else:
@@ -159,8 +159,8 @@ class SegmentationValidator(DetectionValidator):
             # Predictions
             if self.args.single_cls:
                 pred[:, 5] = 0
-            predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
             print(gt_masks.shape, pred_masks.shape)
+            predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
             gt_masks = batch["masks"][si].cpu().long()
             pred_masks = pred_masks.argmax(dim=0).cpu().long()
             self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
