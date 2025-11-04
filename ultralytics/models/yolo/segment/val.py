@@ -121,7 +121,6 @@ class SegmentationValidator(DetectionValidator):
             imgsz = (imgsz[0], imgsz[0])
 
         h, w = imgsz
-        print(h,w)
 
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=imgsz)
         if pred_masks.ndim == 3:
@@ -131,7 +130,6 @@ class SegmentationValidator(DetectionValidator):
         return predn, pred_masks
 
     def update_metrics(self, preds, batch):
-        """Metrics."""
         for si, (pred, proto) in enumerate(zip(preds[0], preds[1])):
             self.seen += 1
             npr = len(pred)
@@ -163,12 +161,11 @@ class SegmentationValidator(DetectionValidator):
             predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
             gt_masks = batch["masks"][si].cpu().long()
             pred_masks = pred_masks.argmax(dim=0).cpu().long()
+            print(gt_masks.shape, pred_masks.shape)
             self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
-
             stat["conf"] = predn[:, 4]
             stat["pred_cls"] = predn[:, 5]
 
-            # Evaluate
             if nl:
                 stat["tp"] = self._process_batch(predn, bbox, cls)
                 stat["tp_m"], mask_iou_values = self._process_batch(
@@ -216,59 +213,10 @@ class SegmentationValidator(DetectionValidator):
                 )
 
     def finalize_metrics(self, *args, **kwargs):
-        """Sets speed and confusion matrix for evaluation metrics."""
         super().finalize_metrics(*args, **kwargs)
-        # 新增：计算并存储平均IoU和Dice
-        # self.metrics.mean_iou = self.metrics.mean_iou
-        # self.metrics.mean_dice = self.metrics.mean_dice
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
 
-    # def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
-    #     """
-    #     Compute correct prediction matrix for a batch based on bounding boxes and optional masks.
-    #
-    #     Args:
-    #         detections (torch.Tensor): Tensor of shape (N, 6) representing detected bounding boxes and
-    #             associated confidence scores and class indices. Each row is of the format [x1, y1, x2, y2, conf, class].
-    #         gt_bboxes (torch.Tensor): Tensor of shape (M, 4) representing ground truth bounding box coordinates.
-    #             Each row is of the format [x1, y1, x2, y2].
-    #         gt_cls (torch.Tensor): Tensor of shape (M,) representing ground truth class indices.
-    #         pred_masks (torch.Tensor | None): Tensor representing predicted masks, if available. The shape should
-    #             match the ground truth masks.
-    #         gt_masks (torch.Tensor | None): Tensor of shape (M, H, W) representing ground truth masks, if available.
-    #         overlap (bool): Flag indicating if overlapping masks should be considered.
-    #         masks (bool): Flag indicating if the batch contains mask data.
-    #
-    #     Returns:
-    #         (torch.Tensor): A correct prediction matrix of shape (N, 10), where 10 represents different IoU levels.
-    #
-    #     Note:
-    #         - If `masks` is True, the function computes IoU between predicted and ground truth masks.
-    #         - If `overlap` is True and `masks` is True, overlapping masks are taken into account when computing IoU.
-    #
-    #     Example:
-    #         ```python
-    #         detections = torch.tensor([[25, 30, 200, 300, 0.8, 1], [50, 60, 180, 290, 0.75, 0]])
-    #         gt_bboxes = torch.tensor([[24, 29, 199, 299], [55, 65, 185, 295]])
-    #         gt_cls = torch.tensor([1, 0])
-    #         correct_preds = validator._process_batch(detections, gt_bboxes, gt_cls)
-    #         ```
-    #     """
-    #     if masks:
-    #         if overlap:
-    #             nl = len(gt_cls)
-    #             index = torch.arange(nl, device=gt_masks.device).view(nl, 1, 1) + 1
-    #             gt_masks = gt_masks.repeat(nl, 1, 1)  # shape(1,640,640) -> (n,640,640)
-    #             gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
-    #         if gt_masks.shape[1:] != pred_masks.shape[1:]:
-    #             gt_masks = F.interpolate(gt_masks[None], pred_masks.shape[1:], mode="bilinear", align_corners=False)[0]
-    #             gt_masks = gt_masks.gt_(0.5)
-    #         iou = mask_iou(gt_masks.view(gt_masks.shape[0], -1), pred_masks.view(pred_masks.shape[0], -1))
-    #     else:  # boxes
-    #         iou = box_iou(gt_bboxes, detections[:, :4])
-    #
-    #     return self.match_predictions(detections[:, 5], gt_cls, iou)
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
         if masks:
             if pred_masks.ndim == 2:
@@ -278,18 +226,6 @@ class SegmentationValidator(DetectionValidator):
 
             if gt_masks.ndim == 2:
                 gt_masks = gt_masks.unsqueeze(0)
-
-            # if overlap:
-            #     nl = len(gt_cls)
-            #     index = torch.arange(nl, device=gt_masks.device).view(nl, 1, 1) + 1
-            #     gt_masks = gt_masks.repeat(nl, 1, 1)
-            #     gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
-
-            # if len(gt_masks.shape[1:]) != len(pred_masks.shape[1:]):
-            #     if len(pred_masks.shape[1:]) == 1:
-            #         pred_masks = pred_masks.unsqueeze(2).expand(-1, -1, gt_masks.shape[2])
-            #     elif len(gt_masks.shape[1:]) == 1:
-            #         gt_masks = gt_masks.unsqueeze(2).expand(-1, -1, pred_masks.shape[2])
 
             if gt_masks.shape[1:] != pred_masks.shape[1:]:
                 gt_masks = F.interpolate(
@@ -306,7 +242,7 @@ class SegmentationValidator(DetectionValidator):
             )
             tp_m = self.match_predictions(detections[:, 5], gt_cls, iou)
             return tp_m, iou
-        else:  # boxes
+        else:
             iou = box_iou(gt_bboxes, detections[:, :4])
             return self.match_predictions(detections[:, 5], gt_cls, iou)
 
