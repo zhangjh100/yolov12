@@ -69,8 +69,11 @@ class SegmentationValidator(DetectionValidator):
         )
 
     def get_stats(self):
-        stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in self.stats.items()}  # 拼接所有批次数据
-        self.nt_per_class = np.bincount(stats["target_cls"].astype(int), minlength=self.nc)  # 总真实目标数
+        stats = {k: torch.cat(v, 0) for k, v in self.stats.items()}
+        self.nt_per_class = np.bincount(
+            stats["target_cls"].cpu().numpy().astype(int),
+            minlength=self.nc
+        )
         if len(stats) and "tp_m" in stats and stats["tp_m"].any():
             self.metrics.process(
                 tp=stats["tp"],
@@ -78,7 +81,7 @@ class SegmentationValidator(DetectionValidator):
                 conf=stats["conf"],
                 pred_cls=stats["pred_cls"],
                 target_cls=stats["target_cls"],
-                # nt_per_class=self.nt_per_class
+                nt_per_class=self.nt_per_class
             )
         return self.metrics.results_dict
 
