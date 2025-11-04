@@ -111,14 +111,7 @@ class SegmentationValidator(DetectionValidator):
         prepared_batch["masks"] = batch["masks"][midx]
         return prepared_batch
 
-    # def _prepare_pred(self, pred, pbatch, proto):
-    #     """Prepares a batch for training or inference by processing images and targets."""
-    #     predn = super()._prepare_pred(pred, pbatch)
-    #     pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=pbatch["imgsz"])
-    #     pred_masks = pred_masks.permute(2, 0, 1).contiguous()
-    #     return predn, pred_masks
     def _prepare_pred(self, pred, pbatch, proto):
-        """Prepares a batch for training or inference by processing images and targets."""
         predn = super()._prepare_pred(pred, pbatch)
 
         imgsz = pbatch["imgsz"]
@@ -127,11 +120,13 @@ class SegmentationValidator(DetectionValidator):
         elif len(imgsz) == 1:
             imgsz = (imgsz[0], imgsz[0])
 
+        h, w = imgsz
+
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=imgsz)
         if pred_masks.ndim == 3:
             pred_masks = pred_masks.permute(2, 0, 1).contiguous()
         else:
-            pred_masks = pred_masks.view(-1, imgsz[0], imgsz[1])
+            pred_masks = pred_masks.view(-1, h, w)
         return predn, pred_masks
 
     def update_metrics(self, preds, batch):
