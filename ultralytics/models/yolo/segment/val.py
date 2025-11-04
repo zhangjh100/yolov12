@@ -159,8 +159,9 @@ class SegmentationValidator(DetectionValidator):
             # Predictions
             if self.args.single_cls:
                 pred[:, 5] = 0
-            print(gt_masks.shape, pred_masks.shape)
+
             predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
+            print(gt_masks.shape, pred_masks.shape)
             gt_masks = batch["masks"][si].cpu().long()
             pred_masks = pred_masks.argmax(dim=0).cpu().long()
             self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
