@@ -126,9 +126,10 @@ class SegmentationValidator(DetectionValidator):
         #   the shape of pred_masks is correct
         if pred_masks.ndim == 3:
             pred_masks = pred_masks.permute(1, 0, 2).contiguous()
+            print("the shape of pred_masks is: ", pred_masks.shape)
         else:
             pred_masks = pred_masks.view(-1, h, w)
-        print("the shape of pred_masks is: ", pred_masks.shape)
+
         return predn, pred_masks
 
     def update_metrics(self, preds, batch):
