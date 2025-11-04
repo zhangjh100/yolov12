@@ -121,6 +121,7 @@ class SegmentationValidator(DetectionValidator):
             imgsz = (imgsz[0], imgsz[0])
 
         h, w = imgsz
+        print(h,w)
 
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=imgsz)
         if pred_masks.ndim == 3:
