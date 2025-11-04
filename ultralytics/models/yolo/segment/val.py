@@ -125,7 +125,7 @@ class SegmentationValidator(DetectionValidator):
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=imgsz)
         #   the shape of pred_masks is correct
         if pred_masks.ndim == 3:
-            pred_masks = pred_masks.permute(2, 0, 1).contiguous()
+            pred_masks = pred_masks.permute(1, 0, 2).contiguous()
             print("the shape of pred_masks is: ", pred_masks.shape)
         else:
             pred_masks = pred_masks.view(-1, h, w)
