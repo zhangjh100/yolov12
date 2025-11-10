@@ -632,6 +632,10 @@ def ap_per_class(
         prec_values (np.ndarray): Precision values at mAP@0.5 for each class. Shape: (nc, 1000).
     """
     # Sort by objectness
+    print("tp shape:", tp.shape)
+    print("conf shape:", conf.shape)
+    print("pred_cls shape:", pred_cls.shape)
+    print("target_cls shape:", target_cls.shape)
     i = np.argsort(-conf)
     tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
 
@@ -646,6 +650,10 @@ def ap_per_class(
     ap, p_curve, r_curve = np.zeros((nc, tp.shape[1])), np.zeros((nc, 1000)), np.zeros((nc, 1000))
     for ci, c in enumerate(unique_classes):
         i = pred_cls == c
+
+        print("i type:", type(i), "i value:", i)
+        tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
+        
         n_l = nt[ci]  # number of labels
         n_p = i.sum()  # number of predictions
         if n_p == 0 or n_l == 0:
