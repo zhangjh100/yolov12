@@ -653,7 +653,7 @@ def ap_per_class(
 
         print("i type:", type(i), "i value:", i)
         tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
-        
+
         n_l = nt[ci]  # number of labels
         n_p = i.sum()  # number of predictions
         if n_p == 0 or n_l == 0:
