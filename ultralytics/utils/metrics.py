@@ -986,7 +986,8 @@ class SegmentMetrics(SimpleClass):
         self.seg = Metric()
         self.iou_scores = []
         self.dice_scores = []
-        # self.tp_m = []
+        self._mean_iou = 0.0
+        self._mean_dice = 0.0
         self.nc = len(names)
         self.nt_per_class = torch.zeros(self.nc, dtype=torch.float32)  # 初始化每个类别的真实样本数
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
@@ -1003,20 +1004,22 @@ class SegmentMetrics(SimpleClass):
 
         dice = (2 * intersection / (gt_masks.float().sum((1, 2)) + pred_masks.float().sum((1, 2)) + 1e-6)).mean().item()
 
-        self.mean_iou = (self.mean_iou + iou) / 2 if hasattr(self, "mean_iou") else iou
-        self.mean_dice = (self.mean_dice + dice) / 2 if hasattr(self, "mean_dice") else dice
+        self._mean_iou = (self._mean_iou + iou) / 2
+        self._mean_dice = (self._mean_dice + dice) / 2
 
     @property
     def mean_iou(self):
-        if not self.iou_scores:
-            return 0.0
-        return np.concatenate(self.iou_scores).mean()
+        return getattr(self, "_mean_iou", 0.0)
+        # if not self.iou_scores:
+        #     return 0.0
+        # return np.concatenate(self.iou_scores).mean()
 
     @property
     def mean_dice(self):
-        if not self.dice_scores:
-            return 0.0
-        return np.concatenate(self.dice_scores).mean()
+        return getattr(self, "_mean_dice", 0.0)
+        # if not self.dice_scores:
+        #     return 0.0
+        # return np.concatenate(self.dice_scores).mean()
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
         """处理每个批次的预测结果"""
