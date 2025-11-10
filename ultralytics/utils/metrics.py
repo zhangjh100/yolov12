@@ -1051,7 +1051,7 @@ class SegmentMetrics(SimpleClass):
         conf = np.concatenate([c.cpu().numpy() for c in conf]) if conf else np.array([])
         pred_cls = np.concatenate([p.cpu().numpy() for p in pred_cls]) if pred_cls else np.array([])
         target_cls = np.concatenate([t.cpu().numpy() for t in target_cls]) if target_cls else np.array([])
-        
+
         for c in range(self.nc):
             self.nt_per_class[c] += (target_cls == c).sum().item()
         results_mask = ap_per_class(
