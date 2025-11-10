@@ -1093,16 +1093,16 @@ class SegmentMetrics(SimpleClass):
             self.tp_m.append(tp_m)
             # 计算掩码的Recall、Precision等（基于tp_m）
         self.calculate_mask_metrics()
-        self.ap50, self.ap, self.f1, self.p, self.r = ap_per_class(
-            tp, conf, pred_cls, target_cls, plot=self.plot, save_dir=self.save_dir, names=self.names
-        )[:5]
-        if len(tp_m) > 0:
-            self.mask_ap50, self.mask_ap, _, self.mask_p, self.mask_r = ap_per_class(
-                tp_m, conf, pred_cls, target_cls, plot=self.plot, save_dir=self.save_dir, names=self.names,
-                prefix="mask_"
-            )[:5]
-        else:
-            self.mask_ap50 = self.mask_ap = self.mask_p = self.mask_r = 0.0
+        # self.ap50, self.ap, self.f1, self.p, self.r = ap_per_class(
+        #     tp, conf, pred_cls, target_cls, plot=self.plot, save_dir=self.save_dir, names=self.names
+        # )[:5]
+        # if len(tp_m) > 0:
+        #     self.mask_ap50, self.mask_ap, _, self.mask_p, self.mask_r = ap_per_class(
+        #         tp_m, conf, pred_cls, target_cls, plot=self.plot, save_dir=self.save_dir, names=self.names,
+        #         prefix="mask_"
+        #     )[:5]
+        # else:
+        #     self.mask_ap50 = self.mask_ap = self.mask_p = self.mask_r = 0.0
 
     def calculate_mask_metrics(self):
         if not self.tp_m:
