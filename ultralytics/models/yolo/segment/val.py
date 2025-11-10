@@ -225,6 +225,12 @@ class SegmentationValidator(DetectionValidator):
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
 
+        self.results_dict = getattr(self, 'results_dict', {})
+        self.results_dict.update({
+            'mean_iou': round(float(self.metrics.mean_iou), 4) if hasattr(self.metrics, 'mean_iou') else None,
+            'mean_dice': round(float(self.metrics.mean_dice), 4) if hasattr(self.metrics, 'mean_dice') else None
+        })
+
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
         if masks:
             if pred_masks.ndim == 2:

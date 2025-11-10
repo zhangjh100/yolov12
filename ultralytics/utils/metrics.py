@@ -1019,18 +1019,14 @@ class SegmentMetrics(SimpleClass):
         self.dice_scores.append(dice)
 
     def update_iou_dice(self, gt_masks, pred_masks):
-        """更新IoU和Dice指标（确保输入为张量且维度匹配）"""
-        # 确保输入是张量且形状一致
-        if not isinstance(gt_masks, torch.Tensor) or not isinstance(pred_masks, torch.Tensor):
-            raise TypeError("gt_masks和pred_masks必须是PyTorch张量")
-        if gt_masks.shape != pred_masks.shape:
-            raise ValueError(f"gt_masks和pred_masks形状不匹配: {gt_masks.shape} vs {pred_masks.shape}")
+        intersection = (gt_masks & pred_masks).float().sum((1, 2))
+        union = (gt_masks | pred_masks).float().sum((1, 2))
+        iou = (intersection / (union + 1e-6)).mean().item()
 
-        class_ious, class_dices, mean_iou, mean_dice = class_iou_dice(
-            gt_masks, pred_masks, self.nc
-        )
-        self.iou_scores.append(class_ious)
-        self.dice_scores.append(class_dices)
+        dice = (2 * intersection / (gt_masks.float().sum((1, 2)) + pred_masks.float().sum((1, 2)) + 1e-6)).mean().item()
+
+        self.mean_iou = (self.mean_iou + iou) / 2 if hasattr(self, "mean_iou") else iou
+        self.mean_dice = (self.mean_dice + dice) / 2 if hasattr(self, "mean_dice") else dice
 
     @property
     def mean_iou(self):
