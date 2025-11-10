@@ -1049,60 +1049,65 @@ class SegmentMetrics(SimpleClass):
         Processes the detection and segmentation metrics over the given set of predictions.
 
         Args:
-            tp (list): List of True Positive boxes.
-            tp_m (list): List of True Positive masks.
-            conf (list): List of confidence scores.
-            pred_cls (list): List of predicted classes.
-            target_cls (list): List of target classes.
+            tp (list): List of True Positive boxes (each element is a tensor of shape [N, niou]).
+            tp_m (list): List of True Positive masks (each element is a tensor of shape [N, niou]).
+            conf (list): List of confidence scores (each element is a tensor of shape [N]).
+            pred_cls (list): List of predicted classes (each element is a tensor of shape [N]).
+            target_cls (list): List of target classes (each element is a tensor of shape [M]).
         """
-        conf = conf if conf.size > 0 else np.array([])
-        pred_cls = pred_cls if pred_cls.size > 0 else np.array([])
-        target_cls = target_cls if target_cls.size > 0 else np.array([])
-        tp = tp if tp.size > 0 else np.array([])
-        tp_m = tp_m if (tp_m is not None and tp_m.size > 0) else np.array([])
+        conf = np.concatenate([c.cpu().numpy() for c in conf]) if conf else np.array([])
+        pred_cls = np.concatenate([p.cpu().numpy() for p in pred_cls]) if pred_cls else np.array([])
+        target_cls = np.concatenate([t.cpu().numpy() for t in target_cls]) if target_cls else np.array([])
+        tp = np.concatenate([t.cpu().numpy() for t in tp]) if tp else np.array([], dtype=bool)
+        tp_m = np.concatenate([t.cpu().numpy() for t in tp_m]) if (
+                    tp_m and any(t.numel() > 0 for t in tp_m)) else np.array([], dtype=bool)
+
+        if len(tp) != len(conf):
+            raise ValueError(f"tp样本数 {len(tp)} 与conf样本数 {len(conf)} 不匹配，请检查拼接逻辑")
+        if len(tp_m) != len(conf) and len(tp_m) > 0:
+            raise ValueError(f"tp_m样本数 {len(tp_m)} 与conf样本数 {len(conf)} 不匹配，请检查拼接逻辑")
 
         for c in range(self.nc):
             self.nt_per_class[c] += (target_cls == c).sum().item()
-        results_mask = ap_per_class(
-            tp_m,
-            conf,
-            pred_cls,
-            target_cls,
-            plot=self.plot,
-            on_plot=self.on_plot,
-            save_dir=self.save_dir,
-            names=self.names,
-            prefix="Mask",
-        )[2:]
-        self.seg.nc = len(self.names)
-        self.seg.update(results_mask)
-        results_box = ap_per_class(
-            tp,
-            conf,
-            pred_cls,
-            target_cls,
-            plot=self.plot,
-            on_plot=self.on_plot,
-            save_dir=self.save_dir,
-            names=self.names,
-            prefix="Box",
-        )[2:]
-        self.box.nc = len(self.names)
-        self.box.update(results_box)
-        if tp_m is not None:
-            self.tp_m.append(tp_m)
-            # 计算掩码的Recall、Precision等（基于tp_m）
+
+        if len(tp_m) > 0:
+            results_mask = ap_per_class(
+                tp_m,
+                conf,
+                pred_cls,
+                target_cls,
+                plot=self.plot,
+                on_plot=self.on_plot,
+                save_dir=self.save_dir,
+                names=self.names,
+                prefix="Mask",
+            )[2:]
+            self.seg.nc = len(self.names)
+            self.seg.update(results_mask)
+        else:
+            self.seg.update([np.array([]) for _ in range(5)])  # 假设需要5个指标，根据实际调整
+
+        if len(tp) > 0:
+            results_box = ap_per_class(
+                tp,
+                conf,
+                pred_cls,
+                target_cls,
+                plot=self.plot,
+                on_plot=self.on_plot,
+                save_dir=self.save_dir,
+                names=self.names,
+                prefix="Box",
+            )[2:]
+            self.box.nc = len(self.names)
+            self.box.update(results_box)
+        else:
+            self.box.update([np.array([]) for _ in range(5)])
+
+        if len(tp_m) > 0:
+            self.tp_m.append(torch.from_numpy(tp_m))
+
         self.calculate_mask_metrics()
-        # self.ap50, self.ap, self.f1, self.p, self.r = ap_per_class(
-        #     tp, conf, pred_cls, target_cls, plot=self.plot, save_dir=self.save_dir, names=self.names
-        # )[:5]
-        # if len(tp_m) > 0:
-        #     self.mask_ap50, self.mask_ap, _, self.mask_p, self.mask_r = ap_per_class(
-        #         tp_m, conf, pred_cls, target_cls, plot=self.plot, save_dir=self.save_dir, names=self.names,
-        #         prefix="mask_"
-        #     )[:5]
-        # else:
-        #     self.mask_ap50 = self.mask_ap = self.mask_p = self.mask_r = 0.0
 
     def calculate_mask_metrics(self):
         if not self.tp_m:
