@@ -70,7 +70,7 @@ class SegmentationValidator(DetectionValidator):
 
     def get_stats(self):
         stats = self.stats.copy()
-        stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in self.stats.items()}
+        stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in stats.items() if v}
 
         if stats.get("target_cls"):
             target_cls_concat = torch.cat(stats["target_cls"], 0).cpu().numpy()
