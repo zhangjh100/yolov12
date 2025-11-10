@@ -71,6 +71,11 @@ class SegmentationValidator(DetectionValidator):
     def get_stats(self):
         stats = self.stats.copy()
 
+        print("tp shape:", [t.shape for t in stats["tp"]])
+        print("conf shape:", [c.shape for c in stats["conf"]])
+        print("pred_cls shape:", [p.shape for p in stats["pred_cls"]])
+        print("target_cls shape:", [t.shape for t in stats["target_cls"]])
+
         if stats.get("target_cls"):
             target_cls_concat = torch.cat(stats["target_cls"], 0).cpu().numpy()
             self.nt_per_class = np.bincount(target_cls_concat.astype(int), minlength=self.nc)
