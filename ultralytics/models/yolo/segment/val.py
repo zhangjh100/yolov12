@@ -72,13 +72,13 @@ class SegmentationValidator(DetectionValidator):
         stats = self.stats.copy()
         stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in stats.items() if v}
 
-        if stats.get("target_cls"):
-            target_cls_concat = torch.cat(stats["target_cls"], 0).cpu().numpy()
+        if "target_cls" in stats and stats["target_cls"].size > 0:
+            target_cls_concat = stats["target_cls"]
             self.nt_per_class = np.bincount(target_cls_concat.astype(int), minlength=self.nc)
         else:
             self.nt_per_class = np.zeros(self.nc, dtype=int)
 
-        if len(stats) and "tp_m" in stats and any(t.any() for t in stats["tp_m"]):
+        if len(stats) and "tp_m" in stats and stats["tp_m"].any():
             self.metrics.process(
                 tp=stats["tp"],
                 tp_m=stats["tp_m"],
