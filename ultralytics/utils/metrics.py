@@ -135,35 +135,13 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7
 
 
 def mask_iou(mask1, mask2, eps=1e-7):
-    """
-    Calculate masks IoU.
-
-    Args:
-        mask1 (torch.Tensor): A tensor of shape (N, n) where N is the number of ground truth objects and n is the
-                        product of image width and height.
-        mask2 (torch.Tensor): A tensor of shape (M, n) where M is the number of predicted objects and n is the
-                        product of image width and height.
-        eps (float, optional): A small value to avoid division by zero. Defaults to 1e-7.
-
-    Returns:
-        (torch.Tensor): A tensor of shape (N, M) representing masks IoU.
-    """
     intersection = torch.matmul(mask1, mask2.T).clamp_(0)
-    union = (mask1.sum(1)[:, None] + mask2.sum(1)[None]) - intersection  # (area1 + area2) - intersection
+    union = (mask1.sum(1)[:, None] + mask2.sum(1)[None]) - intersection
     return intersection / (union + eps)
 
 
 # 在mask_iou函数下方添加
 def mask_dice(mask1, mask2, eps=1e-7):
-    """
-    计算掩码的Dice系数（2*交集 / (预测面积 + 真实面积)）
-    Args:
-        mask1 (torch.Tensor): 真实掩码 (N, H*W)
-        mask2 (torch.Tensor): 预测掩码 (M, H*W)
-        eps (float): 防止除零的微小值
-    Returns:
-        torch.Tensor: (N, M) 形状的Dice系数
-    """
     intersection = torch.matmul(mask1, mask2.T).clamp_(0)  # 交集
     union = mask1.sum(1)[:, None] + mask2.sum(1)[None]  # 预测面积 + 真实面积
     return (2.0 * intersection) / (union + eps)
@@ -1041,27 +1019,13 @@ class SegmentMetrics(SimpleClass):
         return np.concatenate(self.dice_scores).mean()
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
-        """
-        Processes the detection and segmentation metrics over the given set of predictions.
-
-        Args:
-            tp (list): List of True Positive boxes (each element is a tensor of shape [N, niou]).
-            tp_m (list): List of True Positive masks (each element is a tensor of shape [N, niou]).
-            conf (list): List of confidence scores (each element is a tensor of shape [N]).
-            pred_cls (list): List of predicted classes (each element is a tensor of shape [N]).
-            target_cls (list): List of target classes (each element is a tensor of shape [M]).
-        """
+        """处理每个批次的预测结果"""
         conf = np.concatenate([c.cpu().numpy() for c in conf]) if conf else np.array([])
         pred_cls = np.concatenate([p.cpu().numpy() for p in pred_cls]) if pred_cls else np.array([])
         target_cls = np.concatenate([t.cpu().numpy() for t in target_cls]) if target_cls else np.array([])
         tp = np.concatenate([t.cpu().numpy() for t in tp]) if tp else np.array([], dtype=bool)
         tp_m = np.concatenate([t.cpu().numpy() for t in tp_m]) if (
-                    tp_m and any(t.numel() > 0 for t in tp_m)) else np.array([], dtype=bool)
-
-        if len(tp) != len(conf):
-            raise ValueError(f"tp样本数 {len(tp)} 与conf样本数 {len(conf)} 不匹配，请检查拼接逻辑")
-        if len(tp_m) != len(conf) and len(tp_m) > 0:
-            raise ValueError(f"tp_m样本数 {len(tp_m)} 与conf样本数 {len(conf)} 不匹配，请检查拼接逻辑")
+                tp_m and any(t.numel() > 0 for t in tp_m)) else np.array([], dtype=bool)
 
         for c in range(self.nc):
             self.nt_per_class[c] += (target_cls == c).sum().item()
@@ -1100,9 +1064,6 @@ class SegmentMetrics(SimpleClass):
         else:
             self.box.update([np.array([]) for _ in range(5)])
 
-        if len(tp_m) > 0:
-            self.tp_m.append(torch.from_numpy(tp_m))
-
         self.calculate_mask_metrics()
 
     def calculate_mask_metrics(self):
@@ -1116,8 +1077,7 @@ class SegmentMetrics(SimpleClass):
 
     @property
     def results_dict(self):
-        """扩展结果字典，包含掩码指标"""
-        base_dict = super().results_dict  # 边界框指标
+        base_dict = super().results_dict
         mask_dict = {
             "mask_P": self.mask_precision.mean() if hasattr(self, 'mask_precision') else 0.0,
             "mask_R": self.mask_recall.mean() if hasattr(self, 'mask_recall') else 0.0,
@@ -1125,20 +1085,6 @@ class SegmentMetrics(SimpleClass):
             "mask_Dice": self.mean_dice
         }
         return {**base_dict, **mask_dict}
-    # def keys(self):
-    #     """Returns a list of keys for accessing metrics."""
-    #     return [
-    #         "metrics/precision(B)",
-    #         "metrics/recall(B)",
-    #         "metrics/mAP50(B)",
-    #         "metrics/mAP50-95(B)",
-    #         "metrics/precision(M)",
-    #         "metrics/recall(M)",
-    #         "metrics/mAP50(M)",
-    #         "metrics/mAP50-95(M)",
-    #         "metrics/IoU(M)",
-    #         "metrics/Dice(M)"
-    #     ]
 
     def mean_results(self):
         """Return the mean metrics for bounding box and segmentation results."""
