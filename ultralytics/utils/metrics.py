@@ -1055,10 +1055,11 @@ class SegmentMetrics(SimpleClass):
             pred_cls (list): List of predicted classes.
             target_cls (list): List of target classes.
         """
-        # target_cls = torch.cat(target_cls)
-        conf = np.concatenate([c.cpu().numpy() for c in conf]) if conf else np.array([])
-        pred_cls = np.concatenate([p.cpu().numpy() for p in pred_cls]) if pred_cls else np.array([])
-        target_cls = np.concatenate([t.cpu().numpy() for t in target_cls]) if target_cls else np.array([])
+        conf = conf if conf.size > 0 else np.array([])
+        pred_cls = pred_cls if pred_cls.size > 0 else np.array([])
+        target_cls = target_cls if target_cls.size > 0 else np.array([])
+        tp = tp if tp.size > 0 else np.array([])
+        tp_m = tp_m if (tp_m is not None and tp_m.size > 0) else np.array([])
 
         for c in range(self.nc):
             self.nt_per_class[c] += (target_cls == c).sum().item()
@@ -1092,6 +1093,16 @@ class SegmentMetrics(SimpleClass):
             self.tp_m.append(tp_m)
             # 计算掩码的Recall、Precision等（基于tp_m）
         self.calculate_mask_metrics()
+        self.ap50, self.ap, self.f1, self.p, self.r = ap_per_class(
+            tp, conf, pred_cls, target_cls, plot=self.plot, save_dir=self.save_dir, names=self.names
+        )[:5]
+        if len(tp_m) > 0:
+            self.mask_ap50, self.mask_ap, _, self.mask_p, self.mask_r = ap_per_class(
+                tp_m, conf, pred_cls, target_cls, plot=self.plot, save_dir=self.save_dir, names=self.names,
+                prefix="mask_"
+            )[:5]
+        else:
+            self.mask_ap50 = self.mask_ap = self.mask_p = self.mask_r = 0.0
 
     def calculate_mask_metrics(self):
         if not self.tp_m:
