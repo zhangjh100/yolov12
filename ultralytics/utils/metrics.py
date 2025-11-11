@@ -148,53 +148,63 @@ def mask_dice(mask1, mask2, eps=1e-7):
 
 def class_iou_dice(gt_mask, pred_mask, num_classes=None):
     """计算每个类别的 IoU 和 Dice，并返回平均值（支持PyTorch张量）"""
-    # 确保输入是PyTorch张量（保留设备信息，如GPU）
+    # 确保输入是PyTorch张量
     if isinstance(gt_mask, np.ndarray):
         gt_mask = torch.from_numpy(gt_mask)
     if isinstance(pred_mask, np.ndarray):
         pred_mask = torch.from_numpy(pred_mask)
-    device = gt_mask.device  # 保留设备信息
 
-    # 自动获取类别（如果未指定）
+    # 如果维度不匹配，直接跳过（防止空输入）
+    if gt_mask.numel() == 0 or pred_mask.numel() == 0:
+        return torch.tensor([0.0]), torch.tensor([0.0]), 0.0, 0.0
+
+    device = gt_mask.device
+
+    # 自动确定类别
     if num_classes is None:
-        # 合并真实和预测掩码的类别，确保无遗漏
         all_classes = torch.cat([gt_mask.unique(), pred_mask.unique()]).unique()
         num_classes = len(all_classes)
         classes = all_classes
     else:
         classes = torch.arange(num_classes, device=device)
 
+    # 如果没有有效类别，返回默认值
     if num_classes == 0:
-        return [], [], 0.0, 0.0
+        return torch.tensor([0.0], device=device), torch.tensor([0.0], device=device), 0.0, 0.0
 
-    ious = []
-    dices = []
+    ious, dices = [], []
     for cls in classes:
-        # 提取当前类别的二值掩码
-        gt = (gt_mask == cls).float()  # (N, H, W) -> 二值化
+        gt = (gt_mask == cls).float()
         pred = (pred_mask == cls).float()
 
-        # 展平计算交集和并集（支持批量处理）
-        gt_flat = gt.view(gt.shape[0], -1)  # (N, H*W)
-        pred_flat = pred.view(pred.shape[0], -1)
+        # 展平
+        gt_flat = gt.view(gt.shape[0], -1) if gt.ndim == 3 else gt.view(1, -1)
+        pred_flat = pred.view(pred.shape[0], -1) if pred.ndim == 3 else pred.view(1, -1)
 
-        intersection = (gt_flat * pred_flat).sum(dim=1)  # 每个样本的交集
-        union = gt_flat.sum(dim=1) + pred_flat.sum(dim=1) - intersection  # 每个样本的并集
+        intersection = (gt_flat * pred_flat).sum(dim=1)
+        union = gt_flat.sum(dim=1) + pred_flat.sum(dim=1) - intersection
 
-        # 计算该类别的平均IoU和Dice（跨样本平均）
         iou = (intersection / (union + 1e-7)).mean().item()
         dice = (2.0 * intersection / (gt_flat.sum(dim=1) + pred_flat.sum(dim=1) + 1e-7)).mean().item()
+
+        # 处理 NaN 或异常情况
+        if not np.isfinite(iou):
+            iou = 0.0
+        if not np.isfinite(dice):
+            dice = 0.0
 
         ious.append(iou)
         dices.append(dice)
 
-    # 转换为张量，保持设备一致性
-    ious_tensor = torch.tensor(ious, device=device)
-    dices_tensor = torch.tensor(dices, device=device)
-    mean_iou = ious_tensor.mean().item() if num_classes > 0 else 0.0
-    mean_dice = dices_tensor.mean().item() if num_classes > 0 else 0.0
+    # 转换为张量（确保非空）
+    ious_tensor = torch.tensor(ious if len(ious) > 0 else [0.0], device=device)
+    dices_tensor = torch.tensor(dices if len(dices) > 0 else [0.0], device=device)
+
+    mean_iou = ious_tensor.mean().item()
+    mean_dice = dices_tensor.mean().item()
 
     return ious_tensor, dices_tensor, mean_iou, mean_dice
+
 
 def kpt_iou(kpt1, kpt2, area, sigma, eps=1e-7):
     """
@@ -998,19 +1008,37 @@ class SegmentMetrics(SimpleClass):
 
     @property
     def mean_iou(self):
-        non_empty_iou = [x for x in self.iou_scores if x.size > 0]  # 过滤空数组
-        if non_empty_iou:
-            mean_iou = float(np.mean(np.concatenate(non_empty_iou)))
-        else:
-            mean_iou = 0.0
-        return mean_iou
+        if not hasattr(self, 'iou_scores') or len(self.iou_scores) == 0:
+            return 0.0
+
+        non_empty_iou = []
+        for i in self.iou_scores:
+            if isinstance(i, np.ndarray) and i.size > 0:
+                non_empty_iou.append(i)
+            elif isinstance(i, (float, int)) and not np.isnan(i):
+                non_empty_iou.append(np.array([i]))
+
+        if len(non_empty_iou) == 0:
+            return 0.0
+
+        return float(np.mean(np.concatenate(non_empty_iou)))
 
     @property
     def mean_dice(self):
-        if not hasattr(self, "dice_scores") or len(self.dice_scores) == 0:
+        if not hasattr(self, 'dice_scores') or len(self.dice_scores) == 0:
             return 0.0
-        return float(np.mean(np.concatenate(self.dice_scores)) if any(
-            isinstance(x, (list, np.ndarray)) for x in self.dice_scores) else np.mean(self.dice_scores))
+
+        non_empty_dice = []
+        for d in self.dice_scores:
+            if isinstance(d, np.ndarray) and d.size > 0:
+                non_empty_dice.append(d)
+            elif isinstance(d, (float, int)) and not np.isnan(d):
+                non_empty_dice.append(np.array([d]))
+
+        if len(non_empty_dice) == 0:
+            return 0.0
+
+        return float(np.mean(np.concatenate(non_empty_dice)))
 
     @property
     def mean_precision(self):
