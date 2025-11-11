@@ -982,12 +982,33 @@ class SegmentMetrics(SimpleClass):
         return
 
     @property
+    def keys(self):
+        return [
+            "metrics/precision(B)",
+            "metrics/recall(B)",
+            "metrics/mAP50(B)",
+            "metrics/mAP50-95(B)",
+            "metrics/precision(M)",
+            "metrics/recall(M)",
+            "metrics/mAP50(M)",
+            "metrics/mAP50-95(M)",
+            "metrics/mIoU(M)",
+            "metrics/Dice(M)",
+        ]
+
+    @property
     def mean_iou(self):
-        return getattr(self, "_mean_iou", 0.0)
+        if not hasattr(self, "iou_scores") or len(self.iou_scores) == 0:
+            return 0.0
+        return float(np.mean(np.concatenate(self.iou_scores)) if any(
+            isinstance(x, (list, np.ndarray)) for x in self.iou_scores) else np.mean(self.iou_scores))
 
     @property
     def mean_dice(self):
-        return getattr(self, "_mean_dice", 0.0)
+        if not hasattr(self, "dice_scores") or len(self.dice_scores) == 0:
+            return 0.0
+        return float(np.mean(np.concatenate(self.dice_scores)) if any(
+            isinstance(x, (list, np.ndarray)) for x in self.dice_scores) else np.mean(self.dice_scores))
 
     @property
     def mean_precision(self):
@@ -1095,6 +1116,13 @@ class SegmentMetrics(SimpleClass):
                 stats["iou"].append(0.0)
                 stats["dice"].append(0.0)
 
+        if len(stats.get("iou", [])) > 0:
+            ious = np.asarray(stats["iou"]).ravel().tolist()
+            self.iou_scores.extend(ious)
+        if len(stats.get("dice", [])) > 0:
+            dices = np.asarray(stats["dice"]).ravel().tolist()
+            self.dice_scores.extend(dices)
+
         if len(stats["precision"]):
             self._mean_precision = np.mean(stats["precision"])
             self._mean_recall = np.mean(stats["recall"])
@@ -1120,20 +1148,39 @@ class SegmentMetrics(SimpleClass):
         self.mask_recall = tp_m.sum(0) / (self.nt_per_class[:, None] + 1e-10)
         self.mask_precision = tp_m.sum(0) / (tp_m.sum(0) + (1 - tp_m).sum(0) + 1e-10)
 
+    # @property
+    # def results_dict(self):
+    #     base_dict = super().results_dict
+    #     mask_dict = {
+    #         "mask_P": self.mask_precision.mean() if hasattr(self, 'mask_precision') else 0.0,
+    #         "mask_R": self.mask_recall.mean() if hasattr(self, 'mask_recall') else 0.0,
+    #         "mask_mIoU": self.mean_iou,
+    #         "mask_Dice": self.mean_dice
+    #     }
+    #     return {**base_dict, **mask_dict}
     @property
     def results_dict(self):
-        base_dict = super().results_dict
-        mask_dict = {
-            "mask_P": self.mask_precision.mean() if hasattr(self, 'mask_precision') else 0.0,
-            "mask_R": self.mask_recall.mean() if hasattr(self, 'mask_recall') else 0.0,
-            "mask_mIoU": self.mean_iou,
-            "mask_Dice": self.mean_dice
-        }
-        return {**base_dict, **mask_dict}
+        """Return dict keyed by self.keys + fitness"""
+        values = self.mean_results()
+        return dict(zip(self.keys + ["fitness"], values + [self.fitness]))
+
 
     def mean_results(self):
-        """Return the mean metrics for bounding box and segmentation results."""
-        return self.box.mean_results() + self.seg.mean_results()
+        """
+        Return the mean metrics for bounding box and segmentation results.
+        Returns:
+            list: [P_box, R_box, mAP50_box, mAP50-95_box,
+                   P_mask, R_mask, mAP50_mask, mAP50-95_mask,
+                   mean_iou, mean_dice]
+        """
+        # box.mean_results -> [mp, mr, map50, map]
+        box_vals = self.box.mean_results()
+        # seg.mean_results -> [mp, mr, map50, map] for masks (Metric class)
+        seg_vals = self.seg.mean_results()
+        # Append IoU and Dice aggregated from lists / properties
+        iou_val = float(self.mean_iou) if hasattr(self, "mean_iou") else 0.0
+        dice_val = float(self.mean_dice) if hasattr(self, "mean_dice") else 0.0
+        return box_vals + seg_vals + [iou_val, dice_val]
 
     def class_result(self, i):
         """Returns classification results for a specified class index."""
