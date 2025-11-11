@@ -580,36 +580,6 @@ def compute_ap(recall, precision):
 def ap_per_class(
     tp, conf, pred_cls, target_cls, plot=False, on_plot=None, save_dir=Path(), names={}, eps=1e-16, prefix=""
 ):
-    """
-    Computes the average precision per class for object detection evaluation.
-
-    Args:
-        tp (np.ndarray): Binary array indicating whether the detection is correct (True) or not (False).
-        conf (np.ndarray): Array of confidence scores of the detections.
-        pred_cls (np.ndarray): Array of predicted classes of the detections.
-        target_cls (np.ndarray): Array of true classes of the detections.
-        plot (bool, optional): Whether to plot PR curves or not. Defaults to False.
-        on_plot (func, optional): A callback to pass plots path and data when they are rendered. Defaults to None.
-        save_dir (Path, optional): Directory to save the PR curves. Defaults to an empty path.
-        names (dict, optional): Dict of class names to plot PR curves. Defaults to an empty tuple.
-        eps (float, optional): A small value to avoid division by zero. Defaults to 1e-16.
-        prefix (str, optional): A prefix string for saving the plot files. Defaults to an empty string.
-
-    Returns:
-        tp (np.ndarray): True positive counts at threshold given by max F1 metric for each class.Shape: (nc,).
-        fp (np.ndarray): False positive counts at threshold given by max F1 metric for each class. Shape: (nc,).
-        p (np.ndarray): Precision values at threshold given by max F1 metric for each class. Shape: (nc,).
-        r (np.ndarray): Recall values at threshold given by max F1 metric for each class. Shape: (nc,).
-        f1 (np.ndarray): F1-score values at threshold given by max F1 metric for each class. Shape: (nc,).
-        ap (np.ndarray): Average precision for each class at different IoU thresholds. Shape: (nc, 10).
-        unique_classes (np.ndarray): An array of unique classes that have data. Shape: (nc,).
-        p_curve (np.ndarray): Precision curves for each class. Shape: (nc, 1000).
-        r_curve (np.ndarray): Recall curves for each class. Shape: (nc, 1000).
-        f1_curve (np.ndarray): F1-score curves for each class. Shape: (nc, 1000).
-        x (np.ndarray): X-axis values for the curves. Shape: (1000,).
-        prec_values (np.ndarray): Precision values at mAP@0.5 for each class. Shape: (nc, 1000).
-    """
-    # Sort by objectness
     print("tp shape:", tp.shape)
     print("conf shape:", conf.shape)
     print("pred_cls shape:", pred_cls.shape)
@@ -617,14 +587,11 @@ def ap_per_class(
     i = np.argsort(-conf)
     tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
 
-    # Find unique classes
     unique_classes, nt = np.unique(target_cls, return_counts=True)
-    nc = unique_classes.shape[0]  # number of classes, number of detections
+    nc = unique_classes.shape[0]
 
-    # Create Precision-Recall curve and compute AP for each class
     x, prec_values = np.linspace(0, 1, 1000), []
 
-    # Average precision, precision and recall curves
     ap, p_curve, r_curve = np.zeros((nc, tp.shape[1])), np.zeros((nc, 1000)), np.zeros((nc, 1000))
     for ci, c in enumerate(unique_classes):
         i = pred_cls == c
@@ -637,7 +604,6 @@ def ap_per_class(
         if n_p == 0 or n_l == 0:
             continue
 
-        # Accumulate FPs and TPs
         fpc = (1 - tp[i]).cumsum(0)
         tpc = tp[i].cumsum(0)
 
@@ -998,14 +964,24 @@ class SegmentMetrics(SimpleClass):
         self.dice_scores.append(dice)
 
     def update_iou_dice(self, gt_masks, pred_masks):
+        if gt_masks is None or pred_masks is None or gt_masks.numel() == 0 or pred_masks.numel() == 0:
+            self.update_iou_dice_empty()
+            return
+
         intersection = (gt_masks & pred_masks).float().sum((1, 2))
         union = (gt_masks | pred_masks).float().sum((1, 2))
         iou = (intersection / (union + 1e-6)).mean().item()
-
         dice = (2 * intersection / (gt_masks.float().sum((1, 2)) + pred_masks.float().sum((1, 2)) + 1e-6)).mean().item()
 
         self._mean_iou = (self._mean_iou + iou) / 2
         self._mean_dice = (self._mean_dice + dice) / 2
+
+    def update_iou_dice_empty(self):
+        if not hasattr(self, "_mean_iou"):
+            self._mean_iou = 0.0
+        if not hasattr(self, "_mean_dice"):
+            self._mean_dice = 0.0
+        return
 
     @property
     def mean_iou(self):

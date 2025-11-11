@@ -78,15 +78,24 @@ class SegmentationValidator(DetectionValidator):
         # else:
         #     self.nt_per_class = np.zeros(self.nc, dtype=int)
 
-        if len(stats) and "tp_m" in stats and any(t.any() for t in stats["tp_m"]):
-            self.metrics.process(
-                tp=stats["tp"],
-                tp_m=stats["tp_m"],
-                conf=stats["conf"],
-                pred_cls=stats["pred_cls"],
-                target_cls=stats["target_cls"],
-            )
-        return self.metrics.results_dict
+        if len(stats) and "tp_m" in stats:
+            tp = np.concatenate([x.cpu().numpy() for x in stats["tp"] if x.numel()], 0) if stats["tp"] else np.array([])
+            tp_m = np.concatenate([x.cpu().numpy() for x in stats["tp_m"] if x.numel()], 0) if stats[
+                "tp_m"] else np.array([])
+            conf = np.concatenate([x.cpu().numpy() for x in stats["conf"] if x.numel()], 0) if stats[
+                "conf"] else np.array([])
+            pred_cls = np.concatenate([x.cpu().numpy() for x in stats["pred_cls"] if x.numel()], 0) if stats[
+                "pred_cls"] else np.array([])
+            target_cls = np.concatenate([x.cpu().numpy() for x in stats["target_cls"] if x.numel()], 0) if stats[
+                "target_cls"] else np.array([])
+
+            min_len = min(len(tp), len(tp_m), len(conf), len(pred_cls)) if all(
+                len(x) for x in [tp, tp_m, conf, pred_cls]) else 0
+            if min_len > 0:
+                tp, tp_m, conf, pred_cls = tp[:min_len], tp_m[:min_len], conf[:min_len], pred_cls[:min_len]
+                self.metrics.process(tp=tp, tp_m=tp_m, conf=conf, pred_cls=pred_cls, target_cls=target_cls)
+            else:
+                pass
 
     def print_results(self):
         super().print_results()
@@ -170,7 +179,15 @@ class SegmentationValidator(DetectionValidator):
             predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
             gt_masks = batch["masks"][si].cpu().long()
             pred_masks = pred_masks.argmax(dim=0).cpu().long()
-            self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
+            # self.metrics.update_iou_dice(gt_masks.unsqueeze(0), pred_masks.unsqueeze(0))
+            if gt_masks is None or gt_masks.numel() == 0:
+                self.metrics.update_iou_dice_empty()
+            else:
+                n = min(gt_masks.shape[0], pred_masks.shape[0])
+                gt_masks = gt_masks[:n]
+                pred_masks = pred_masks[:n]
+
+                self.metrics.update_iou_dice(gt_masks, pred_masks)
             stat["conf"] = predn[:, 4]
             stat["pred_cls"] = predn[:, 5]
 
