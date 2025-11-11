@@ -1035,22 +1035,18 @@ class SegmentMetrics(SimpleClass):
             else:
                 return np.array([], dtype=dtype)
 
-        # ========== 输入清洗 ==========
         conf = safe_concat(conf)
         pred_cls = safe_concat(pred_cls)
         target_cls = safe_concat(target_cls)
         tp = safe_concat(tp, dtype=bool)
         tp_m = safe_concat(tp_m, dtype=bool)
 
-        # 空样本直接跳过
         if len(tp) == 0 or len(conf) == 0 or len(pred_cls) == 0:
             return
 
-        # ========== 按置信度排序 ==========
         i = np.argsort(-conf)
         tp, tp_m, conf, pred_cls = tp[i], tp_m[i], conf[i], pred_cls[i]
 
-        # ========== 统计每类指标 ==========
         unique_classes = np.unique(target_cls)
         nc = len(unique_classes)
 
@@ -1077,7 +1073,6 @@ class SegmentMetrics(SimpleClass):
                 stats["dice"].append(0.0)
                 continue
 
-            # 累积 TP, FP, FN
             tp_c = tp[i]
             fp_c = 1 - tp_c
             tp_sum = tp_c.cumsum(0)
@@ -1091,7 +1086,6 @@ class SegmentMetrics(SimpleClass):
             stats["recall"].append(recall[-1])
             stats["f1"].append(f1[-1])
 
-            # IoU、Dice（若有 mask 匹配结果）
             if len(tp_m) == len(tp):
                 iou_c = tp_m[i].mean() if np.any(i) else 0.0
                 dice_c = 2 * iou_c / (iou_c + 1) if iou_c > 0 else 0.0
@@ -1101,7 +1095,6 @@ class SegmentMetrics(SimpleClass):
                 stats["iou"].append(0.0)
                 stats["dice"].append(0.0)
 
-        # ========== 汇总 ==========
         if len(stats["precision"]):
             self._mean_precision = np.mean(stats["precision"])
             self._mean_recall = np.mean(stats["recall"])
@@ -1109,10 +1102,9 @@ class SegmentMetrics(SimpleClass):
             self._mean_iou = np.mean(stats["iou"])
             self._mean_dice = np.mean(stats["dice"])
         else:
-            self.mean_precision = self.mean_recall = self.mean_f1 = 0.0
-            self.mean_iou = self.mean_dice = 0.0
+            self._mean_precision = self._mean_recall = self._mean_f1 = 0.0
+            self._mean_iou = self._mean_dice = 0.0
 
-        # ========== 可打印日志 ==========
         try:
             print(f"[Metrics] P={self.mean_precision:.3f}, R={self.mean_recall:.3f}, "
                   f"F1={self.mean_f1:.3f}, IoU={self.mean_iou:.3f}, Dice={self.mean_dice:.3f}")
