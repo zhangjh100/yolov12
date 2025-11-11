@@ -984,31 +984,28 @@ class SegmentMetrics(SimpleClass):
     @property
     def mean_iou(self):
         return getattr(self, "_mean_iou", 0.0)
-        # if not self.iou_scores:
-        #     return 0.0
-        # return np.concatenate(self.iou_scores).mean()
 
     @property
     def mean_dice(self):
         return getattr(self, "_mean_dice", 0.0)
-        # if not self.dice_scores:
-        #     return 0.0
-        # return np.concatenate(self.dice_scores).mean()
+
+    @property
+    def mean_precision(self):
+        return getattr(self, "_mean_precision", 0.0)
+
+    @property
+    def mean_recall(self):
+        return getattr(self, "_mean_recall", 0.0)
+
+    @property
+    def mean_f1(self):
+        return getattr(self, "_mean_f1", 0.0)
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
-        """
-        通用指标处理函数，兼容 numpy / tensor / list 格式的输入
-        并支持分割任务 (IoU、Dice) 的指标更新。
-        """
         import torch
         import numpy as np
 
-        # ========== 内部安全拼接函数 ==========
         def safe_concat(x, dtype=None):
-            """
-            支持 list[Tensor] / list[np.ndarray] / np.ndarray / Tensor
-            自动转换为 numpy 数组；为空时返回空数组。
-            """
             if isinstance(x, (list, tuple)) and len(x) > 0:
                 arrs = []
                 for item in x:
@@ -1106,11 +1103,11 @@ class SegmentMetrics(SimpleClass):
 
         # ========== 汇总 ==========
         if len(stats["precision"]):
-            self.mean_precision = np.mean(stats["precision"])
-            self.mean_recall = np.mean(stats["recall"])
-            self.mean_f1 = np.mean(stats["f1"])
-            self.mean_iou = np.mean(stats["iou"])
-            self.mean_dice = np.mean(stats["dice"])
+            self._mean_precision = np.mean(stats["precision"])
+            self._mean_recall = np.mean(stats["recall"])
+            self._mean_f1 = np.mean(stats["f1"])
+            self._mean_iou = np.mean(stats["iou"])
+            self._mean_dice = np.mean(stats["dice"])
         else:
             self.mean_precision = self.mean_recall = self.mean_f1 = 0.0
             self.mean_iou = self.mean_dice = 0.0
