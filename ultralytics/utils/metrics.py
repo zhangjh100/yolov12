@@ -967,12 +967,10 @@ class SegmentMetrics(SimpleClass):
         if gt_masks is None or pred_masks is None or gt_masks.numel() == 0 or pred_masks.numel() == 0:
             self.update_iou_dice_empty()
             return
-
-        intersection = (gt_masks & pred_masks).float().sum((1, 2))
-        union = (gt_masks | pred_masks).float().sum((1, 2))
+        intersection = (gt_masks * pred_masks).float().sum((1, 2))
+        union = (gt_masks + pred_masks - gt_masks * pred_masks).float().sum((1, 2))
         iou = (intersection / (union + 1e-6)).mean().item()
-        dice = (2 * intersection / (gt_masks.float().sum((1, 2)) + pred_masks.float().sum((1, 2)) + 1e-6)).mean().item()
-
+        dice = (2 * intersection / (gt_masks.sum((1, 2)) + pred_masks.sum((1, 2)) + 1e-6)).mean().item()
         self._mean_iou = (self._mean_iou + iou) / 2
         self._mean_dice = (self._mean_dice + dice) / 2
 
