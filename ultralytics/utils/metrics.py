@@ -998,10 +998,12 @@ class SegmentMetrics(SimpleClass):
 
     @property
     def mean_iou(self):
-        if not hasattr(self, "iou_scores") or len(self.iou_scores) == 0:
-            return 0.0
-        return float(np.mean(np.concatenate(self.iou_scores)) if any(
-            isinstance(x, (list, np.ndarray)) for x in self.iou_scores) else np.mean(self.iou_scores))
+        non_empty_iou = [x for x in self.iou_scores if x.size > 0]  # 过滤空数组
+        if non_empty_iou:
+            mean_iou = float(np.mean(np.concatenate(non_empty_iou)))
+        else:
+            mean_iou = 0.0
+        return mean_iou
 
     @property
     def mean_dice(self):
