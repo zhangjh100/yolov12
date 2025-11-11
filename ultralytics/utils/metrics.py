@@ -996,8 +996,13 @@ class SegmentMetrics(SimpleClass):
         # return np.concatenate(self.dice_scores).mean()
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
-        """处理每个批次的预测结果"""
-        conf = np.concatenate([c.cpu().numpy() for c in conf]) if conf else np.array([])
+        if isinstance(conf, (list, tuple)) and len(conf) > 0:
+            conf = np.concatenate([c.cpu().numpy() if torch.is_tensor(c) else c for c in conf])
+        elif isinstance(conf, np.ndarray):
+            pass
+        else:
+            conf = np.array([])
+
         pred_cls = np.concatenate([p.cpu().numpy() for p in pred_cls]) if pred_cls else np.array([])
         target_cls = np.concatenate([t.cpu().numpy() for t in target_cls]) if target_cls else np.array([])
         tp = np.concatenate([t.cpu().numpy() for t in tp]) if tp else np.array([], dtype=bool)
