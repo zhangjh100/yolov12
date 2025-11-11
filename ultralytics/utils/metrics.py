@@ -1003,8 +1003,20 @@ class SegmentMetrics(SimpleClass):
         else:
             conf = np.array([])
 
-        pred_cls = np.concatenate([p.cpu().numpy() for p in pred_cls]) if pred_cls else np.array([])
-        target_cls = np.concatenate([t.cpu().numpy() for t in target_cls]) if target_cls else np.array([])
+        if isinstance(pred_cls, (list, tuple)) and len(pred_cls) > 0:
+            pred_cls = np.concatenate([p.cpu().numpy() if torch.is_tensor(p) else p for p in pred_cls])
+        elif isinstance(pred_cls, np.ndarray):
+            pass
+        else:
+            pred_cls = np.array([])
+
+        if isinstance(target_cls, (list, tuple)) and len(target_cls) > 0:
+            target_cls = np.concatenate([t.cpu().numpy() if torch.is_tensor(t) else t for t in target_cls])
+        elif isinstance(target_cls, np.ndarray):
+            pass
+        else:
+            target_cls = np.array([])
+
         tp = np.concatenate([t.cpu().numpy() for t in tp]) if tp else np.array([], dtype=bool)
         tp_m = np.concatenate([t.cpu().numpy() for t in tp_m]) if (
                 tp_m and any(t.numel() > 0 for t in tp_m)) else np.array([], dtype=bool)
