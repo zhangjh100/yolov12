@@ -147,63 +147,88 @@ def mask_dice(mask1, mask2, eps=1e-7):
     return (2.0 * intersection) / (union + eps)
 
 def class_iou_dice(gt_mask, pred_mask, num_classes=None):
-    """计算每个类别的 IoU 和 Dice，并返回平均值（支持PyTorch张量）"""
-    # 确保输入是PyTorch张量
+    """
+    Robust class-wise IoU and Dice.
+    - gt_mask: torch tensor, shape (H,W) or (N,H,W) with class indices (0..C-1)
+    - pred_mask: can be:
+        - class indices same shape as gt_mask (H,W) or (N,H,W), or
+        - logits/probs with shape (C,H,W) or (N,C,H,W) -> will argmax over channels
+    - num_classes: optional int
+    Returns: (ious_tensor, dices_tensor, mean_iou, mean_dice)
+    Each ious_tensor/dices_tensor is 1D tensor length = num_classes (or inferred).
+    """
+    import torch, numpy as np
+
+    # convert numpy to torch
     if isinstance(gt_mask, np.ndarray):
         gt_mask = torch.from_numpy(gt_mask)
     if isinstance(pred_mask, np.ndarray):
         pred_mask = torch.from_numpy(pred_mask)
 
-    # 如果维度不匹配，直接跳过（防止空输入）
-    if gt_mask.numel() == 0 or pred_mask.numel() == 0:
-        return torch.tensor([0.0]), torch.tensor([0.0]), 0.0, 0.0
+    if pred_mask.ndim == 4:  # (N, C, H, W)
+        pred_mask = pred_mask.argmax(dim=1)  # -> (N, H, W)
+    elif pred_mask.ndim == 3 and (pred_mask.shape[0] == gt_mask.shape[0] or gt_mask.ndim == 2 and pred_mask.shape[0] != gt_mask.shape[0]):
+        if pred_mask.shape[0] != gt_mask.shape[0]:
+            pred_mask = pred_mask.argmax(dim=0)
+
+    if gt_mask.ndim == 2:
+        gt_mask = gt_mask.unsqueeze(0)
+    if pred_mask.ndim == 2:
+        pred_mask = pred_mask.unsqueeze(0)
 
     device = gt_mask.device
 
-    # 自动确定类别
     if num_classes is None:
-        all_classes = torch.cat([gt_mask.unique(), pred_mask.unique()]).unique()
-        num_classes = len(all_classes)
-        classes = all_classes
+        all_classes = torch.cat([gt_mask.view(-1), pred_mask.view(-1)]).unique()
+        all_classes = all_classes[all_classes >= 0]
+        if all_classes.numel() == 0:
+            num_classes = 1
+            classes = torch.tensor([0], device=device)
+        else:
+            classes = all_classes.sort()[0]
+            num_classes = int(classes.max().item() + 1)
+            classes = torch.arange(num_classes, device=device)
     else:
         classes = torch.arange(num_classes, device=device)
 
-    # 如果没有有效类别，返回默认值
     if num_classes == 0:
         return torch.tensor([0.0], device=device), torch.tensor([0.0], device=device), 0.0, 0.0
 
-    ious, dices = [], []
+    ious = []
+    dices = []
     for cls in classes:
-        gt = (gt_mask == cls).float()
-        pred = (pred_mask == cls).float()
+        gt_bin = (gt_mask == int(cls)).float()  # (N,H,W)
+        pred_bin = (pred_mask == int(cls)).float()
 
-        # 展平
-        gt_flat = gt.view(gt.shape[0], -1) if gt.ndim == 3 else gt.view(1, -1)
-        pred_flat = pred.view(pred.shape[0], -1) if pred.ndim == 3 else pred.view(1, -1)
+        # flatten: (N, H*W)
+        N = gt_bin.shape[0]
+        gt_flat = gt_bin.view(N, -1)
+        pred_flat = pred_bin.view(N, -1)
 
-        intersection = (gt_flat * pred_flat).sum(dim=1)
-        union = gt_flat.sum(dim=1) + pred_flat.sum(dim=1) - intersection
+        inter = (gt_flat * pred_flat).sum(dim=1)  # per sample
+        gt_sum = gt_flat.sum(dim=1)
+        pred_sum = pred_flat.sum(dim=1)
+        union = gt_sum + pred_sum - inter
 
-        iou = (intersection / (union + 1e-7)).mean().item()
-        dice = (2.0 * intersection / (gt_flat.sum(dim=1) + pred_flat.sum(dim=1) + 1e-7)).mean().item()
+        # per-sample safe iou/dice
+        iou_per_sample = torch.where(union > 0, inter / (union + 1e-7), torch.zeros_like(inter))
+        dice_per_sample = torch.where((gt_sum + pred_sum) > 0, 2.0 * inter / (gt_sum + pred_sum + 1e-7), torch.zeros_like(inter))
 
-        # 处理 NaN 或异常情况
-        if not np.isfinite(iou):
-            iou = 0.0
-        if not np.isfinite(dice):
-            dice = 0.0
+        # mean across batch (if N>1)
+        mean_iou_cls = float(iou_per_sample.mean().item()) if iou_per_sample.numel() > 0 else 0.0
+        mean_dice_cls = float(dice_per_sample.mean().item()) if dice_per_sample.numel() > 0 else 0.0
 
-        ious.append(iou)
-        dices.append(dice)
+        ious.append(mean_iou_cls)
+        dices.append(mean_dice_cls)
 
-    # 转换为张量（确保非空）
-    ious_tensor = torch.tensor(ious if len(ious) > 0 else [0.0], device=device)
-    dices_tensor = torch.tensor(dices if len(dices) > 0 else [0.0], device=device)
+    ious_tensor = torch.tensor(ious, device=device) if len(ious) > 0 else torch.tensor([0.0], device=device)
+    dices_tensor = torch.tensor(dices, device=device) if len(dices) > 0 else torch.tensor([0.0], device=device)
 
-    mean_iou = ious_tensor.mean().item()
-    mean_dice = dices_tensor.mean().item()
+    mean_iou = float(ious_tensor.mean().item())
+    mean_dice = float(dices_tensor.mean().item())
 
     return ious_tensor, dices_tensor, mean_iou, mean_dice
+
 
 
 def kpt_iou(kpt1, kpt2, area, sigma, eps=1e-7):
