@@ -996,69 +996,131 @@ class SegmentMetrics(SimpleClass):
         # return np.concatenate(self.dice_scores).mean()
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
-        if isinstance(conf, (list, tuple)) and len(conf) > 0:
-            conf = np.concatenate([c.cpu().numpy() if torch.is_tensor(c) else c for c in conf])
-        elif isinstance(conf, np.ndarray):
+        """
+        通用指标处理函数，兼容 numpy / tensor / list 格式的输入
+        并支持分割任务 (IoU、Dice) 的指标更新。
+        """
+        import torch
+        import numpy as np
+
+        # ========== 内部安全拼接函数 ==========
+        def safe_concat(x, dtype=None):
+            """
+            支持 list[Tensor] / list[np.ndarray] / np.ndarray / Tensor
+            自动转换为 numpy 数组；为空时返回空数组。
+            """
+            if isinstance(x, (list, tuple)) and len(x) > 0:
+                arrs = []
+                for item in x:
+                    if item is None:
+                        continue
+                    if isinstance(item, torch.Tensor):
+                        arrs.append(item.detach().cpu().numpy())
+                    elif isinstance(item, np.ndarray):
+                        arrs.append(item)
+                    else:
+                        try:
+                            arrs.append(np.array(item))
+                        except Exception:
+                            continue
+                if len(arrs) > 0:
+                    try:
+                        return np.concatenate(arrs)
+                    except Exception:
+                        # 如果形状不一致，拼接失败则逐个 flatten
+                        return np.concatenate([a.reshape(-1) for a in arrs])
+                else:
+                    return np.array([], dtype=dtype)
+            elif isinstance(x, torch.Tensor):
+                return x.detach().cpu().numpy()
+            elif isinstance(x, np.ndarray):
+                return x
+            else:
+                return np.array([], dtype=dtype)
+
+        # ========== 输入清洗 ==========
+        conf = safe_concat(conf)
+        pred_cls = safe_concat(pred_cls)
+        target_cls = safe_concat(target_cls)
+        tp = safe_concat(tp, dtype=bool)
+        tp_m = safe_concat(tp_m, dtype=bool)
+
+        # 空样本直接跳过
+        if len(tp) == 0 or len(conf) == 0 or len(pred_cls) == 0:
+            return
+
+        # ========== 按置信度排序 ==========
+        i = np.argsort(-conf)
+        tp, tp_m, conf, pred_cls = tp[i], tp_m[i], conf[i], pred_cls[i]
+
+        # ========== 统计每类指标 ==========
+        unique_classes = np.unique(target_cls)
+        nc = len(unique_classes)
+
+        stats = {
+            "precision": [],
+            "recall": [],
+            "f1": [],
+            "iou": [],
+            "dice": [],
+        }
+
+        for c in unique_classes:
+            i = pred_cls == c
+            n_gt = (target_cls == c).sum()
+            n_p = i.sum()
+
+            if n_p == 0 and n_gt == 0:
+                continue
+            elif n_p == 0 or n_gt == 0:
+                stats["precision"].append(0.0)
+                stats["recall"].append(0.0)
+                stats["f1"].append(0.0)
+                stats["iou"].append(0.0)
+                stats["dice"].append(0.0)
+                continue
+
+            # 累积 TP, FP, FN
+            tp_c = tp[i]
+            fp_c = 1 - tp_c
+            tp_sum = tp_c.cumsum(0)
+            fp_sum = fp_c.cumsum(0)
+
+            recall = tp_sum / (n_gt + 1e-16)
+            precision = tp_sum / (tp_sum + fp_sum + 1e-16)
+            f1 = 2 * precision * recall / (precision + recall + 1e-16)
+
+            stats["precision"].append(precision[-1])
+            stats["recall"].append(recall[-1])
+            stats["f1"].append(f1[-1])
+
+            # IoU、Dice（若有 mask 匹配结果）
+            if len(tp_m) == len(tp):
+                iou_c = tp_m[i].mean() if np.any(i) else 0.0
+                dice_c = 2 * iou_c / (iou_c + 1) if iou_c > 0 else 0.0
+                stats["iou"].append(float(iou_c))
+                stats["dice"].append(float(dice_c))
+            else:
+                stats["iou"].append(0.0)
+                stats["dice"].append(0.0)
+
+        # ========== 汇总 ==========
+        if len(stats["precision"]):
+            self.mean_precision = np.mean(stats["precision"])
+            self.mean_recall = np.mean(stats["recall"])
+            self.mean_f1 = np.mean(stats["f1"])
+            self.mean_iou = np.mean(stats["iou"])
+            self.mean_dice = np.mean(stats["dice"])
+        else:
+            self.mean_precision = self.mean_recall = self.mean_f1 = 0.0
+            self.mean_iou = self.mean_dice = 0.0
+
+        # ========== 可打印日志 ==========
+        try:
+            print(f"[Metrics] P={self.mean_precision:.3f}, R={self.mean_recall:.3f}, "
+                  f"F1={self.mean_f1:.3f}, IoU={self.mean_iou:.3f}, Dice={self.mean_dice:.3f}")
+        except Exception:
             pass
-        else:
-            conf = np.array([])
-
-        if isinstance(pred_cls, (list, tuple)) and len(pred_cls) > 0:
-            pred_cls = np.concatenate([p.cpu().numpy() if torch.is_tensor(p) else p for p in pred_cls])
-        elif isinstance(pred_cls, np.ndarray):
-            pass
-        else:
-            pred_cls = np.array([])
-
-        if isinstance(target_cls, (list, tuple)) and len(target_cls) > 0:
-            target_cls = np.concatenate([t.cpu().numpy() if torch.is_tensor(t) else t for t in target_cls])
-        elif isinstance(target_cls, np.ndarray):
-            pass
-        else:
-            target_cls = np.array([])
-
-        tp = np.concatenate([t.cpu().numpy() for t in tp]) if tp else np.array([], dtype=bool)
-        tp_m = np.concatenate([t.cpu().numpy() for t in tp_m]) if (
-                tp_m and any(t.numel() > 0 for t in tp_m)) else np.array([], dtype=bool)
-
-        for c in range(self.nc):
-            self.nt_per_class[c] += (target_cls == c).sum().item()
-
-        if len(tp_m) > 0:
-            results_mask = ap_per_class(
-                tp_m,
-                conf,
-                pred_cls,
-                target_cls,
-                plot=self.plot,
-                on_plot=self.on_plot,
-                save_dir=self.save_dir,
-                names=self.names,
-                prefix="Mask",
-            )[2:]
-            self.seg.nc = len(self.names)
-            self.seg.update(results_mask)
-        else:
-            self.seg.update([np.array([]) for _ in range(5)])  # 假设需要5个指标，根据实际调整
-
-        if len(tp) > 0:
-            results_box = ap_per_class(
-                tp,
-                conf,
-                pred_cls,
-                target_cls,
-                plot=self.plot,
-                on_plot=self.on_plot,
-                save_dir=self.save_dir,
-                names=self.names,
-                prefix="Box",
-            )[2:]
-            self.box.nc = len(self.names)
-            self.box.update(results_box)
-        else:
-            self.box.update([np.array([]) for _ in range(5)])
-
-        self.calculate_mask_metrics()
 
     def calculate_mask_metrics(self):
         if not self.tp_m:
