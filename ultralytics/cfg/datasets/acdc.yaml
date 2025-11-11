@@ -14,8 +14,6 @@ train: train/images
 test: val/images
 val: val/images
 
-nc: 3
-
 # Classes
 names:
   0: LV
