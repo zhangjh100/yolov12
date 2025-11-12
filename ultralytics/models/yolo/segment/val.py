@@ -48,8 +48,9 @@ class SegmentationValidator(DetectionValidator):
         self.plot_masks = []
         if self.args.save_json:
             check_requirements("pycocotools>=2.0.6")
-        # more accurate vs faster
         self.process = ops.process_mask_native if self.args.save_json or self.args.save_txt else ops.process_mask
+        if not hasattr(self, "nt_per_class") or self.nt_per_class is None:
+            self.nt_per_class = torch.zeros(self.nc)
         self.stats = dict(tp_m=[], tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
 
     def get_desc(self):
