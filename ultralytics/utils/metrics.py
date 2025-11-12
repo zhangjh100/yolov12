@@ -16,6 +16,50 @@ OKS_SIGMA = (
     / 10.0
 )
 
+# def dice_coefficient(pred_mask: torch.Tensor, true_mask: torch.Tensor, eps: float = 1e-6):
+#     pred_mask = pred_mask.float()
+#     true_mask = true_mask.float()
+#     intersection = (pred_mask * true_mask).sum(dim = (-1, -2))
+#     union = pred_mask.sum(dim = (-1, -2)) + true_mask.sum(dim = (-1, -2))
+#     dice = (2. * intersection + eps) / (union + eps)
+#     return dice  # 常见返回 shape (N,) 或标量
+#
+# def iou_score(pred_mask: torch.Tensor, true_mask: torch.Tensor, eps: float = 1e-6):
+#     pred_mask = pred_mask.float()
+#     true_mask = true_mask.float()
+#     intersection = (pred_mask * true_mask).sum(dim = (-1, -2))
+#     union = pred_mask.sum(dim = (-1, -2)) + true_mask.sum(dim = (-1, -2)) - intersection
+#     iou = (intersection + eps) / (union + eps)
+#     return iou
+#
+# def compute_per_class_metrics(pred_masks: torch.Tensor, true_masks: torch.Tensor, threshold: float = 0.5):
+#     """
+#     pred_masks: (N, C, H, W)
+#     true_masks: (N, C, H, W)
+#     返回：dice_per_class: list of length C, iou_per_class: list of length C
+#     """
+#     N, C, H, W = pred_masks.shape
+#     device = pred_masks.device
+#     dice_sum = torch.zeros(C, device=device)
+#     iou_sum  = torch.zeros(C, device=device)
+#     count    = torch.zeros(C, device=device)
+#
+#     pred_bin = (pred_masks > threshold).float()
+#     true_bin = (true_masks > 0.5).float()
+#
+#     for c in range(C):
+#         pm = pred_bin[:, c, :, :]
+#         tm = true_bin[:, c, :, :]
+#         dice_vals = dice_coefficient(pm.unsqueeze(1), tm.unsqueeze(1))
+#         iou_vals  = iou_score(pm.unsqueeze(1), tm.unsqueeze(1))
+#         dice_sum[c] += dice_vals.sum()
+#         iou_sum[c]  += iou_vals.sum()
+#         count[c]   += N  # 或者只加上那些样本中真值有该类的情况
+#
+#     dice_per_class = (dice_sum / (count + eps)).cpu().tolist()
+#     iou_per_class  = (iou_sum  / (count + eps)).cpu().tolist()
+#     return dice_per_class, iou_per_class
+
 
 def bbox_ioa(box1, box2, iou=False, eps=1e-7):
     """
@@ -935,6 +979,9 @@ class SegmentMetrics(SimpleClass):
         self.seg = Metric()
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "segment"
+        self.keys += ['mean_dice', 'mean_iou']
+        self.results_dict['mean_dice'] = 0.0
+        self.results_dict['mean_iou'] = 0.0
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
         """

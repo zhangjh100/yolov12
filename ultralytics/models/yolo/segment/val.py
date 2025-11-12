@@ -1,4 +1,5 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+# Modified by ChatGPT (for YOLOv12 segmentation evaluation: add Dice & IoU metrics)
 
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
@@ -14,46 +15,67 @@ from ultralytics.utils.metrics import SegmentMetrics, box_iou, mask_iou
 from ultralytics.utils.plotting import output_to_target, plot_images
 
 
+# -------------------------------------------------
+# 🔹 新增：Dice 与 IoU 计算函数
+# -------------------------------------------------
+def dice_coefficient(pred_mask: torch.Tensor, true_mask: torch.Tensor, eps=1e-6):
+    """
+    Compute Dice coefficient between prediction and ground truth masks.
+    Both should be binary tensors of the same shape.
+    """
+    intersection = (pred_mask * true_mask).sum()
+    return (2.0 * intersection + eps) / (pred_mask.sum() + true_mask.sum() + eps)
+
+
+def iou_score(pred_mask: torch.Tensor, true_mask: torch.Tensor, eps=1e-6):
+    """
+    Compute IoU between prediction and ground truth masks.
+    Both should be binary tensors of the same shape.
+    """
+    intersection = (pred_mask * true_mask).sum()
+    union = (pred_mask + true_mask - pred_mask * true_mask).sum()
+    return (intersection + eps) / (union + eps)
+
+
+# -------------------------------------------------
+# 🔹 修改后的验证类
+# -------------------------------------------------
 class SegmentationValidator(DetectionValidator):
     """
-    A class extending the DetectionValidator class for validation based on a segmentation model.
-
-    Example:
-        ```python
-        from ultralytics.models.yolo.segment import SegmentationValidator
-
-        args = dict(model="yolov8n-seg.pt", data="coco8-seg.yaml")
-        validator = SegmentationValidator(args=args)
-        validator()
-        ```
+    Extended DetectionValidator for segmentation models with added Dice/IoU metrics.
     """
 
     def __init__(self, dataloader=None, save_dir=None, pbar=None, args=None, _callbacks=None):
-        """Initialize SegmentationValidator and set task to 'segment', metrics to SegmentMetrics."""
         super().__init__(dataloader, save_dir, pbar, args, _callbacks)
         self.plot_masks = None
         self.process = None
         self.args.task = "segment"
         self.metrics = SegmentMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
 
+        # 新增：每类 Dice/IoU 累加器
+        self.dice_sum_per_class = None
+        self.iou_sum_per_class = None
+        self.count_per_class = None
+
     def preprocess(self, batch):
-        """Preprocesses batch by converting masks to float and sending to device."""
         batch = super().preprocess(batch)
         batch["masks"] = batch["masks"].to(self.device).float()
         return batch
 
     def init_metrics(self, model):
-        """Initialize metrics and select mask processing function based on save_json flag."""
         super().init_metrics(model)
         self.plot_masks = []
         if self.args.save_json:
             check_requirements("pycocotools>=2.0.6")
-        # more accurate vs faster
         self.process = ops.process_mask_native if self.args.save_json or self.args.save_txt else ops.process_mask
         self.stats = dict(tp_m=[], tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
 
+        # 初始化 Dice/IoU 累加器
+        self.dice_sum_per_class = torch.zeros(self.nc, device=self.device)
+        self.iou_sum_per_class = torch.zeros(self.nc, device=self.device)
+        self.count_per_class = torch.zeros(self.nc, device=self.device)
+
     def get_desc(self):
-        """Return a formatted description of evaluation metrics."""
         return ("%22s" + "%11s" * 10) % (
             "Class",
             "Images",
@@ -69,7 +91,6 @@ class SegmentationValidator(DetectionValidator):
         )
 
     def postprocess(self, preds):
-        """Post-processes YOLO predictions and returns output detections with proto."""
         p = ops.non_max_suppression(
             preds[0],
             self.args.conf,
@@ -80,24 +101,24 @@ class SegmentationValidator(DetectionValidator):
             max_det=self.args.max_det,
             nc=self.nc,
         )
-        proto = preds[1][-1] if len(preds[1]) == 3 else preds[1]  # second output is len 3 if pt, but only 1 if exported
+        proto = preds[1][-1] if len(preds[1]) == 3 else preds[1]
         return p, proto
 
     def _prepare_batch(self, si, batch):
-        """Prepares a batch for training or inference by processing images and targets."""
         prepared_batch = super()._prepare_batch(si, batch)
         midx = [si] if self.args.overlap_mask else batch["batch_idx"] == si
         prepared_batch["masks"] = batch["masks"][midx]
         return prepared_batch
 
     def _prepare_pred(self, pred, pbatch, proto):
-        """Prepares a batch for training or inference by processing images and targets."""
         predn = super()._prepare_pred(pred, pbatch)
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=pbatch["imgsz"])
         return predn, pred_masks
 
+    # -------------------------------------------------
+    # 🔹 核心修改：在 update_metrics 中计算每类 Dice 和 IoU
+    # -------------------------------------------------
     def update_metrics(self, preds, batch):
-        """Metrics."""
         for si, (pred, proto) in enumerate(zip(preds[0], preds[1])):
             self.seen += 1
             npr = len(pred)
@@ -120,32 +141,41 @@ class SegmentationValidator(DetectionValidator):
                         self.confusion_matrix.process_batch(detections=None, gt_bboxes=bbox, gt_cls=cls)
                 continue
 
-            # Masks
             gt_masks = pbatch.pop("masks")
-            # Predictions
             if self.args.single_cls:
                 pred[:, 5] = 0
             predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
             stat["conf"] = predn[:, 4]
             stat["pred_cls"] = predn[:, 5]
 
-            # Evaluate
             if nl:
                 stat["tp"] = self._process_batch(predn, bbox, cls)
-                stat["tp_m"] = self._process_batch(
-                    predn, bbox, cls, pred_masks, gt_masks, self.args.overlap_mask, masks=True
-                )
+                stat["tp_m"] = self._process_batch(predn, bbox, cls, pred_masks, gt_masks, self.args.overlap_mask, masks=True)
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, bbox, cls)
 
             for k in self.stats.keys():
                 self.stats[k].append(stat[k])
 
+            # ✅ 新增：Dice & IoU 计算
             pred_masks = torch.as_tensor(pred_masks, dtype=torch.uint8)
-            if self.args.plots and self.batch_i < 3:
-                self.plot_masks.append(pred_masks[:15].cpu())  # filter top 15 to plot
+            gt_semantic = torch.zeros((self.nc, *gt_masks.shape[1:]), device=self.device)
+            pred_semantic = torch.zeros_like(gt_semantic)
 
-            # Save
+            for ci in range(self.nc):
+                gt_semantic[ci] = (gt_masks == ci + 1).any(dim=0) if gt_masks.ndim == 3 else (gt_masks == ci)
+                pred_semantic[ci] = (pred_masks == ci + 1).any(dim=0) if pred_masks.ndim == 3 else (pred_masks == ci)
+
+                if gt_semantic[ci].sum() > 0 or pred_semantic[ci].sum() > 0:
+                    dice = dice_coefficient(pred_semantic[ci], gt_semantic[ci])
+                    iou = iou_score(pred_semantic[ci], gt_semantic[ci])
+                    self.dice_sum_per_class[ci] += dice
+                    self.iou_sum_per_class[ci] += iou
+                    self.count_per_class[ci] += 1
+
+            if self.args.plots and self.batch_i < 3:
+                self.plot_masks.append(pred_masks[:15].cpu())
+
             if self.args.save_json:
                 self.pred_to_json(
                     predn,
@@ -165,56 +195,46 @@ class SegmentationValidator(DetectionValidator):
                     self.save_dir / "labels" / f"{Path(batch['im_file'][si]).stem}.txt",
                 )
 
+    # -------------------------------------------------
+    # 🔹 在验证结束时输出平均 Dice/IoU
+    # -------------------------------------------------
     def finalize_metrics(self, *args, **kwargs):
-        """Sets speed and confusion matrix for evaluation metrics."""
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
 
+        dice_per_class = self.dice_sum_per_class / (self.count_per_class + 1e-6)
+        iou_per_class = self.iou_sum_per_class / (self.count_per_class + 1e-6)
+        mean_dice = dice_per_class.mean().item()
+        mean_iou = iou_per_class.mean().item()
+
+        LOGGER.info("\nPer-class segmentation evaluation (Dice / IoU):")
+        for ci, name in enumerate(self.names):
+            LOGGER.info(f" Class {ci} ({name}): Dice={dice_per_class[ci]:.4f}, IoU={iou_per_class[ci]:.4f}")
+        LOGGER.info(f"Mean Dice={mean_dice:.4f}, Mean IoU={mean_iou:.4f}")
+
+        self.metrics.results_dict["dice_per_class"] = dice_per_class.cpu().tolist()
+        self.metrics.results_dict["iou_per_class"] = iou_per_class.cpu().tolist()
+        self.metrics.results_dict["mean_dice"] = mean_dice
+        self.metrics.results_dict["mean_iou"] = mean_iou
+
+    # -------------------------------------------------
+    # 其余函数保持不变（plotting, save, json eval等）
+    # -------------------------------------------------
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_masks=None, gt_masks=None, overlap=False, masks=False):
-        """
-        Compute correct prediction matrix for a batch based on bounding boxes and optional masks.
-
-        Args:
-            detections (torch.Tensor): Tensor of shape (N, 6) representing detected bounding boxes and
-                associated confidence scores and class indices. Each row is of the format [x1, y1, x2, y2, conf, class].
-            gt_bboxes (torch.Tensor): Tensor of shape (M, 4) representing ground truth bounding box coordinates.
-                Each row is of the format [x1, y1, x2, y2].
-            gt_cls (torch.Tensor): Tensor of shape (M,) representing ground truth class indices.
-            pred_masks (torch.Tensor | None): Tensor representing predicted masks, if available. The shape should
-                match the ground truth masks.
-            gt_masks (torch.Tensor | None): Tensor of shape (M, H, W) representing ground truth masks, if available.
-            overlap (bool): Flag indicating if overlapping masks should be considered.
-            masks (bool): Flag indicating if the batch contains mask data.
-
-        Returns:
-            (torch.Tensor): A correct prediction matrix of shape (N, 10), where 10 represents different IoU levels.
-
-        Note:
-            - If `masks` is True, the function computes IoU between predicted and ground truth masks.
-            - If `overlap` is True and `masks` is True, overlapping masks are taken into account when computing IoU.
-
-        Example:
-            ```python
-            detections = torch.tensor([[25, 30, 200, 300, 0.8, 1], [50, 60, 180, 290, 0.75, 0]])
-            gt_bboxes = torch.tensor([[24, 29, 199, 299], [55, 65, 185, 295]])
-            gt_cls = torch.tensor([1, 0])
-            correct_preds = validator._process_batch(detections, gt_bboxes, gt_cls)
-            ```
-        """
         if masks:
             if overlap:
                 nl = len(gt_cls)
                 index = torch.arange(nl, device=gt_masks.device).view(nl, 1, 1) + 1
-                gt_masks = gt_masks.repeat(nl, 1, 1)  # shape(1,640,640) -> (n,640,640)
+                gt_masks = gt_masks.repeat(nl, 1, 1)
                 gt_masks = torch.where(gt_masks == index, 1.0, 0.0)
             if gt_masks.shape[1:] != pred_masks.shape[1:]:
                 gt_masks = F.interpolate(gt_masks[None], pred_masks.shape[1:], mode="bilinear", align_corners=False)[0]
                 gt_masks = gt_masks.gt_(0.5)
             iou = mask_iou(gt_masks.view(gt_masks.shape[0], -1), pred_masks.view(pred_masks.shape[0], -1))
-        else:  # boxes
+        else:
             iou = box_iou(gt_bboxes, detections[:, :4])
-
         return self.match_predictions(detections[:, 5], gt_cls, iou)
+
 
     def plot_val_samples(self, batch, ni):
         """Plots validation samples with bounding box labels."""
