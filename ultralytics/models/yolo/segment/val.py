@@ -202,15 +202,13 @@ class SegmentationValidator(DetectionValidator):
     def finalize_metrics(self, *args, **kwargs):
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
-        print(self.metrics.confusion_matrix.matrix.shape)
+        print(self.metrics.confusion_matrix.matrix())
         print(self.dice_sum_per_class)
 
         dice_per_class = self.dice_sum_per_class / (self.count_per_class + 1e-6)
         iou_per_class = self.iou_sum_per_class / (self.count_per_class + 1e-6)
-        mean_dice = dice_per_class.item()
-        mean_iou = iou_per_class.item()
-        # mean_dice = dice_per_class.mean().item()
-        # mean_iou = iou_per_class.mean().item()
+        mean_dice = dice_per_class.mean().item()
+        mean_iou = iou_per_class.mean().item()
 
         LOGGER.info("\nPer-class segmentation evaluation (Dice / IoU):")
         for ci, name in enumerate(self.names):
