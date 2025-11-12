@@ -202,6 +202,7 @@ class SegmentationValidator(DetectionValidator):
     def finalize_metrics(self, *args, **kwargs):
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
+        print(self.metrics.confusion_matrix)
         print(self.dice_sum_per_class)
 
         dice_per_class = self.dice_sum_per_class / (self.count_per_class + 1e-6)
