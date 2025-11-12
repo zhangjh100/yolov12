@@ -203,7 +203,6 @@ class SegmentationValidator(DetectionValidator):
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
         print(self.metrics.confusion_matrix.matrix)
-        print(self.dice_sum_per_class)
 
         dice_per_class = self.dice_sum_per_class / (self.count_per_class + 1e-6)
         iou_per_class = self.iou_sum_per_class / (self.count_per_class + 1e-6)
