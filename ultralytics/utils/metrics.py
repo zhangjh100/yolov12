@@ -979,9 +979,9 @@ class SegmentMetrics(SimpleClass):
         self.seg = Metric()
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "segment"
-        self.keys += ['mean_dice', 'mean_iou']
-        self.results_dict['mean_dice'] = 0.0
-        self.results_dict['mean_iou'] = 0.0
+        # self.keys += ['mean_dice', 'mean_iou']
+        # self.results_dict['mean_dice'] = 0.0
+        # self.results_dict['mean_iou'] = 0.0
 
     def process(self, tp, tp_m, conf, pred_cls, target_cls):
         """
