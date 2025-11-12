@@ -135,100 +135,22 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7
 
 
 def mask_iou(mask1, mask2, eps=1e-7):
+    """
+    Calculate masks IoU.
+
+    Args:
+        mask1 (torch.Tensor): A tensor of shape (N, n) where N is the number of ground truth objects and n is the
+                        product of image width and height.
+        mask2 (torch.Tensor): A tensor of shape (M, n) where M is the number of predicted objects and n is the
+                        product of image width and height.
+        eps (float, optional): A small value to avoid division by zero. Defaults to 1e-7.
+
+    Returns:
+        (torch.Tensor): A tensor of shape (N, M) representing masks IoU.
+    """
     intersection = torch.matmul(mask1, mask2.T).clamp_(0)
-    union = (mask1.sum(1)[:, None] + mask2.sum(1)[None]) - intersection
+    union = (mask1.sum(1)[:, None] + mask2.sum(1)[None]) - intersection  # (area1 + area2) - intersection
     return intersection / (union + eps)
-
-
-# 在mask_iou函数下方添加
-def mask_dice(mask1, mask2, eps=1e-7):
-    intersection = torch.matmul(mask1, mask2.T).clamp_(0)  # 交集
-    union = mask1.sum(1)[:, None] + mask2.sum(1)[None]  # 预测面积 + 真实面积
-    return (2.0 * intersection) / (union + eps)
-
-def class_iou_dice(gt_mask, pred_mask, num_classes=None):
-    """
-    Robust class-wise IoU and Dice.
-    - gt_mask: torch tensor, shape (H,W) or (N,H,W) with class indices (0..C-1)
-    - pred_mask: can be:
-        - class indices same shape as gt_mask (H,W) or (N,H,W), or
-        - logits/probs with shape (C,H,W) or (N,C,H,W) -> will argmax over channels
-    - num_classes: optional int
-    Returns: (ious_tensor, dices_tensor, mean_iou, mean_dice)
-    Each ious_tensor/dices_tensor is 1D tensor length = num_classes (or inferred).
-    """
-    import torch, numpy as np
-
-    # convert numpy to torch
-    if isinstance(gt_mask, np.ndarray):
-        gt_mask = torch.from_numpy(gt_mask)
-    if isinstance(pred_mask, np.ndarray):
-        pred_mask = torch.from_numpy(pred_mask)
-
-    if pred_mask.ndim == 4:  # (N, C, H, W)
-        pred_mask = pred_mask.argmax(dim=1)  # -> (N, H, W)
-    elif pred_mask.ndim == 3 and (pred_mask.shape[0] == gt_mask.shape[0] or gt_mask.ndim == 2 and pred_mask.shape[0] != gt_mask.shape[0]):
-        if pred_mask.shape[0] != gt_mask.shape[0]:
-            pred_mask = pred_mask.argmax(dim=0)
-
-    if gt_mask.ndim == 2:
-        gt_mask = gt_mask.unsqueeze(0)
-    if pred_mask.ndim == 2:
-        pred_mask = pred_mask.unsqueeze(0)
-
-    device = gt_mask.device
-
-    if num_classes is None:
-        all_classes = torch.cat([gt_mask.view(-1), pred_mask.view(-1)]).unique()
-        all_classes = all_classes[all_classes >= 0]
-        if all_classes.numel() == 0:
-            num_classes = 1
-            classes = torch.tensor([0], device=device)
-        else:
-            classes = all_classes.sort()[0]
-            num_classes = int(classes.max().item() + 1)
-            classes = torch.arange(num_classes, device=device)
-    else:
-        classes = torch.arange(num_classes, device=device)
-
-    if num_classes == 0:
-        return torch.tensor([0.0], device=device), torch.tensor([0.0], device=device), 0.0, 0.0
-
-    ious = []
-    dices = []
-    for cls in classes:
-        gt_bin = (gt_mask == int(cls)).float()  # (N,H,W)
-        pred_bin = (pred_mask == int(cls)).float()
-
-        # flatten: (N, H*W)
-        N = gt_bin.shape[0]
-        gt_flat = gt_bin.view(N, -1)
-        pred_flat = pred_bin.view(N, -1)
-
-        inter = (gt_flat * pred_flat).sum(dim=1)  # per sample
-        gt_sum = gt_flat.sum(dim=1)
-        pred_sum = pred_flat.sum(dim=1)
-        union = gt_sum + pred_sum - inter
-
-        # per-sample safe iou/dice
-        iou_per_sample = torch.where(union > 0, inter / (union + 1e-7), torch.zeros_like(inter))
-        dice_per_sample = torch.where((gt_sum + pred_sum) > 0, 2.0 * inter / (gt_sum + pred_sum + 1e-7), torch.zeros_like(inter))
-
-        # mean across batch (if N>1)
-        mean_iou_cls = float(iou_per_sample.mean().item()) if iou_per_sample.numel() > 0 else 0.0
-        mean_dice_cls = float(dice_per_sample.mean().item()) if dice_per_sample.numel() > 0 else 0.0
-
-        ious.append(mean_iou_cls)
-        dices.append(mean_dice_cls)
-
-    ious_tensor = torch.tensor(ious, device=device) if len(ious) > 0 else torch.tensor([0.0], device=device)
-    dices_tensor = torch.tensor(dices, device=device) if len(dices) > 0 else torch.tensor([0.0], device=device)
-
-    mean_iou = float(ious_tensor.mean().item())
-    mean_dice = float(dices_tensor.mean().item())
-
-    return ious_tensor, dices_tensor, mean_iou, mean_dice
-
 
 
 def kpt_iou(kpt1, kpt2, area, sigma, eps=1e-7):
@@ -615,30 +537,56 @@ def compute_ap(recall, precision):
 def ap_per_class(
     tp, conf, pred_cls, target_cls, plot=False, on_plot=None, save_dir=Path(), names={}, eps=1e-16, prefix=""
 ):
-    print("tp shape:", tp.shape)
-    print("conf shape:", conf.shape)
-    print("pred_cls shape:", pred_cls.shape)
-    print("target_cls shape:", target_cls.shape)
+    """
+    Computes the average precision per class for object detection evaluation.
+
+    Args:
+        tp (np.ndarray): Binary array indicating whether the detection is correct (True) or not (False).
+        conf (np.ndarray): Array of confidence scores of the detections.
+        pred_cls (np.ndarray): Array of predicted classes of the detections.
+        target_cls (np.ndarray): Array of true classes of the detections.
+        plot (bool, optional): Whether to plot PR curves or not. Defaults to False.
+        on_plot (func, optional): A callback to pass plots path and data when they are rendered. Defaults to None.
+        save_dir (Path, optional): Directory to save the PR curves. Defaults to an empty path.
+        names (dict, optional): Dict of class names to plot PR curves. Defaults to an empty tuple.
+        eps (float, optional): A small value to avoid division by zero. Defaults to 1e-16.
+        prefix (str, optional): A prefix string for saving the plot files. Defaults to an empty string.
+
+    Returns:
+        tp (np.ndarray): True positive counts at threshold given by max F1 metric for each class.Shape: (nc,).
+        fp (np.ndarray): False positive counts at threshold given by max F1 metric for each class. Shape: (nc,).
+        p (np.ndarray): Precision values at threshold given by max F1 metric for each class. Shape: (nc,).
+        r (np.ndarray): Recall values at threshold given by max F1 metric for each class. Shape: (nc,).
+        f1 (np.ndarray): F1-score values at threshold given by max F1 metric for each class. Shape: (nc,).
+        ap (np.ndarray): Average precision for each class at different IoU thresholds. Shape: (nc, 10).
+        unique_classes (np.ndarray): An array of unique classes that have data. Shape: (nc,).
+        p_curve (np.ndarray): Precision curves for each class. Shape: (nc, 1000).
+        r_curve (np.ndarray): Recall curves for each class. Shape: (nc, 1000).
+        f1_curve (np.ndarray): F1-score curves for each class. Shape: (nc, 1000).
+        x (np.ndarray): X-axis values for the curves. Shape: (1000,).
+        prec_values (np.ndarray): Precision values at mAP@0.5 for each class. Shape: (nc, 1000).
+    """
+    # Sort by objectness
     i = np.argsort(-conf)
     tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
 
+    # Find unique classes
     unique_classes, nt = np.unique(target_cls, return_counts=True)
-    nc = unique_classes.shape[0]
+    nc = unique_classes.shape[0]  # number of classes, number of detections
 
+    # Create Precision-Recall curve and compute AP for each class
     x, prec_values = np.linspace(0, 1, 1000), []
 
+    # Average precision, precision and recall curves
     ap, p_curve, r_curve = np.zeros((nc, tp.shape[1])), np.zeros((nc, 1000)), np.zeros((nc, 1000))
     for ci, c in enumerate(unique_classes):
         i = pred_cls == c
-
-        print("i type:", type(i), "i value:", i)
-        tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
-
         n_l = nt[ci]  # number of labels
         n_p = i.sum()  # number of predictions
         if n_p == 0 or n_l == 0:
             continue
 
+        # Accumulate FPs and TPs
         fpc = (1 - tp[i]).cumsum(0)
         tpc = tp[i].cumsum(0)
 
@@ -978,46 +926,57 @@ class SegmentMetrics(SimpleClass):
     """
 
     def __init__(self, save_dir=Path("."), plot=False, on_plot=None, names=()) -> None:
-        super().__init__()  # 修复原代码中的super调用错误（原代码传入了self，导致参数错误）
+        """Initialize a SegmentMetrics instance with a save directory, plot flag, callback function, and class names."""
         self.save_dir = save_dir
         self.plot = plot
         self.on_plot = on_plot
         self.names = names
         self.box = Metric()
         self.seg = Metric()
-        self.iou_scores = []
-        self.dice_scores = []
-        self._mean_iou = 0.0
-        self._mean_dice = 0.0
-        self.nc = len(names)
-        self.nt_per_class = torch.zeros(self.nc, dtype=torch.float32)  # 初始化每个类别的真实样本数
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "segment"
 
-    def process_iou_dice(self, iou, dice):
-        self.iou_scores.append(iou)
-        self.dice_scores.append(dice)
+    def process(self, tp, tp_m, conf, pred_cls, target_cls):
+        """
+        Processes the detection and segmentation metrics over the given set of predictions.
 
-    def update_iou_dice(self, gt_masks, pred_masks):
-        if gt_masks is None or pred_masks is None or gt_masks.numel() == 0 or pred_masks.numel() == 0:
-            self.update_iou_dice_empty()
-            return
-        intersection = (gt_masks * pred_masks).float().sum((1, 2))
-        union = (gt_masks + pred_masks - gt_masks * pred_masks).float().sum((1, 2))
-        iou = (intersection / (union + 1e-6)).mean().item()
-        dice = (2 * intersection / (gt_masks.sum((1, 2)) + pred_masks.sum((1, 2)) + 1e-6)).mean().item()
-        self._mean_iou = (self._mean_iou + iou) / 2
-        self._mean_dice = (self._mean_dice + dice) / 2
-
-    def update_iou_dice_empty(self):
-        if not hasattr(self, "_mean_iou"):
-            self._mean_iou = 0.0
-        if not hasattr(self, "_mean_dice"):
-            self._mean_dice = 0.0
-        return
+        Args:
+            tp (list): List of True Positive boxes.
+            tp_m (list): List of True Positive masks.
+            conf (list): List of confidence scores.
+            pred_cls (list): List of predicted classes.
+            target_cls (list): List of target classes.
+        """
+        results_mask = ap_per_class(
+            tp_m,
+            conf,
+            pred_cls,
+            target_cls,
+            plot=self.plot,
+            on_plot=self.on_plot,
+            save_dir=self.save_dir,
+            names=self.names,
+            prefix="Mask",
+        )[2:]
+        self.seg.nc = len(self.names)
+        self.seg.update(results_mask)
+        results_box = ap_per_class(
+            tp,
+            conf,
+            pred_cls,
+            target_cls,
+            plot=self.plot,
+            on_plot=self.on_plot,
+            save_dir=self.save_dir,
+            names=self.names,
+            prefix="Box",
+        )[2:]
+        self.box.nc = len(self.names)
+        self.box.update(results_box)
 
     @property
     def keys(self):
+        """Returns a list of keys for accessing metrics."""
         return [
             "metrics/precision(B)",
             "metrics/recall(B)",
@@ -1027,215 +986,11 @@ class SegmentMetrics(SimpleClass):
             "metrics/recall(M)",
             "metrics/mAP50(M)",
             "metrics/mAP50-95(M)",
-            "metrics/mIoU(M)",
-            "metrics/Dice(M)",
         ]
 
-    @property
-    def mean_iou(self):
-        if not hasattr(self, 'iou_scores') or len(self.iou_scores) == 0:
-            return 0.0
-
-        non_empty_iou = []
-        for i in self.iou_scores:
-            if isinstance(i, np.ndarray) and i.size > 0:
-                non_empty_iou.append(i)
-            elif isinstance(i, (float, int)) and not np.isnan(i):
-                non_empty_iou.append(np.array([i]))
-
-        if len(non_empty_iou) == 0:
-            return 0.0
-
-        return float(np.mean(np.concatenate(non_empty_iou)))
-
-    @property
-    def mean_dice(self):
-        if not hasattr(self, 'dice_scores') or len(self.dice_scores) == 0:
-            return 0.0
-
-        non_empty_dice = []
-        for d in self.dice_scores:
-            if isinstance(d, np.ndarray) and d.size > 0:
-                non_empty_dice.append(d)
-            elif isinstance(d, (float, int)) and not np.isnan(d):
-                non_empty_dice.append(np.array([d]))
-
-        if len(non_empty_dice) == 0:
-            return 0.0
-
-        return float(np.mean(np.concatenate(non_empty_dice)))
-
-    @property
-    def mean_precision(self):
-        return getattr(self, "_mean_precision", 0.0)
-
-    @property
-    def mean_recall(self):
-        return getattr(self, "_mean_recall", 0.0)
-
-    @property
-    def mean_f1(self):
-        return getattr(self, "_mean_f1", 0.0)
-
-    def process(self, tp, tp_m, conf, pred_cls, target_cls):
-        import torch
-        import numpy as np
-
-        def safe_concat(x, dtype=None):
-            if isinstance(x, (list, tuple)) and len(x) > 0:
-                arrs = []
-                for item in x:
-                    if item is None:
-                        continue
-                    if isinstance(item, torch.Tensor):
-                        arrs.append(item.detach().cpu().numpy())
-                    elif isinstance(item, np.ndarray):
-                        arrs.append(item)
-                    else:
-                        try:
-                            arrs.append(np.array(item))
-                        except Exception:
-                            continue
-                if len(arrs) > 0:
-                    try:
-                        return np.concatenate(arrs)
-                    except Exception:
-                        # 如果形状不一致，拼接失败则逐个 flatten
-                        return np.concatenate([a.reshape(-1) for a in arrs])
-                else:
-                    return np.array([], dtype=dtype)
-            elif isinstance(x, torch.Tensor):
-                return x.detach().cpu().numpy()
-            elif isinstance(x, np.ndarray):
-                return x
-            else:
-                return np.array([], dtype=dtype)
-
-        conf = safe_concat(conf)
-        pred_cls = safe_concat(pred_cls)
-        target_cls = safe_concat(target_cls)
-        tp = safe_concat(tp, dtype=bool)
-        tp_m = safe_concat(tp_m, dtype=bool)
-
-        if len(tp) == 0 or len(conf) == 0 or len(pred_cls) == 0:
-            return
-
-        i = np.argsort(-conf)
-        tp, tp_m, conf, pred_cls = tp[i], tp_m[i], conf[i], pred_cls[i]
-
-        unique_classes = np.unique(target_cls)
-        nc = len(unique_classes)
-
-        stats = {
-            "precision": [],
-            "recall": [],
-            "f1": [],
-            "iou": [],
-            "dice": [],
-        }
-
-        for c in unique_classes:
-            i = pred_cls == c
-            n_gt = (target_cls == c).sum()
-            n_p = i.sum()
-
-            if n_p == 0 and n_gt == 0:
-                continue
-            elif n_p == 0 or n_gt == 0:
-                stats["precision"].append(0.0)
-                stats["recall"].append(0.0)
-                stats["f1"].append(0.0)
-                stats["iou"].append(0.0)
-                stats["dice"].append(0.0)
-                continue
-
-            tp_c = tp[i]
-            fp_c = 1 - tp_c
-            tp_sum = tp_c.cumsum(0)
-            fp_sum = fp_c.cumsum(0)
-
-            recall = tp_sum / (n_gt + 1e-16)
-            precision = tp_sum / (tp_sum + fp_sum + 1e-16)
-            f1 = 2 * precision * recall / (precision + recall + 1e-16)
-
-            stats["precision"].append(precision[-1])
-            stats["recall"].append(recall[-1])
-            stats["f1"].append(f1[-1])
-
-            if len(tp_m) == len(tp):
-                iou_c = tp_m[i].mean() if np.any(i) else 0.0
-                dice_c = 2 * iou_c / (iou_c + 1) if iou_c > 0 else 0.0
-                stats["iou"].append(float(iou_c))
-                stats["dice"].append(float(dice_c))
-            else:
-                stats["iou"].append(0.0)
-                stats["dice"].append(0.0)
-
-        if len(stats.get("iou", [])) > 0:
-            ious = np.asarray(stats["iou"]).ravel().tolist()
-            self.iou_scores.extend(ious)
-        if len(stats.get("dice", [])) > 0:
-            dices = np.asarray(stats["dice"]).ravel().tolist()
-            self.dice_scores.extend(dices)
-
-        if len(stats["precision"]):
-            self._mean_precision = np.mean(stats["precision"])
-            self._mean_recall = np.mean(stats["recall"])
-            self._mean_f1 = np.mean(stats["f1"])
-            self._mean_iou = np.mean(stats["iou"])
-            self._mean_dice = np.mean(stats["dice"])
-        else:
-            self._mean_precision = self._mean_recall = self._mean_f1 = 0.0
-            self._mean_iou = self._mean_dice = 0.0
-
-        try:
-            print(f"[Metrics] P={self.mean_precision:.3f}, R={self.mean_recall:.3f}, "
-                  f"F1={self.mean_f1:.3f}, IoU={self.mean_iou:.3f}, Dice={self.mean_dice:.3f}")
-        except Exception:
-            pass
-
-    def calculate_mask_metrics(self):
-        if not self.tp_m:
-            self.mask_recall = 0.0
-            self.mask_precision = 0.0
-            return
-        tp_m = torch.cat(self.tp_m, 0).cpu().numpy()
-        self.mask_recall = tp_m.sum(0) / (self.nt_per_class[:, None] + 1e-10)
-        self.mask_precision = tp_m.sum(0) / (tp_m.sum(0) + (1 - tp_m).sum(0) + 1e-10)
-
-    # @property
-    # def results_dict(self):
-    #     base_dict = super().results_dict
-    #     mask_dict = {
-    #         "mask_P": self.mask_precision.mean() if hasattr(self, 'mask_precision') else 0.0,
-    #         "mask_R": self.mask_recall.mean() if hasattr(self, 'mask_recall') else 0.0,
-    #         "mask_mIoU": self.mean_iou,
-    #         "mask_Dice": self.mean_dice
-    #     }
-    #     return {**base_dict, **mask_dict}
-    @property
-    def results_dict(self):
-        """Return dict keyed by self.keys + fitness"""
-        values = self.mean_results()
-        return dict(zip(self.keys + ["fitness"], values + [self.fitness]))
-
-
     def mean_results(self):
-        """
-        Return the mean metrics for bounding box and segmentation results.
-        Returns:
-            list: [P_box, R_box, mAP50_box, mAP50-95_box,
-                   P_mask, R_mask, mAP50_mask, mAP50-95_mask,
-                   mean_iou, mean_dice]
-        """
-        # box.mean_results -> [mp, mr, map50, map]
-        box_vals = self.box.mean_results()
-        # seg.mean_results -> [mp, mr, map50, map] for masks (Metric class)
-        seg_vals = self.seg.mean_results()
-        # Append IoU and Dice aggregated from lists / properties
-        iou_val = float(self.mean_iou) if hasattr(self, "mean_iou") else 0.0
-        dice_val = float(self.mean_dice) if hasattr(self, "mean_dice") else 0.0
-        return box_vals + seg_vals + [iou_val, dice_val]
+        """Return the mean metrics for bounding box and segmentation results."""
+        return self.box.mean_results() + self.seg.mean_results()
 
     def class_result(self, i):
         """Returns classification results for a specified class index."""
@@ -1258,18 +1013,8 @@ class SegmentMetrics(SimpleClass):
 
     @property
     def results_dict(self):
-        """扩展结果字典，包含掩码指标"""
-        base_dict = super().results_dict  # 边界框指标
-        mask_dict = {
-            "mask_P": self.mask_precision.mean() if hasattr(self, 'mask_precision') else 0.0,
-            "mask_R": self.mask_recall.mean() if hasattr(self, 'mask_recall') else 0.0,
-            "mask_mIoU": self.mean_iou,
-            "mask_Dice": self.mean_dice
-        }
-        return {**base_dict, **mask_dict}
-    # def results_dict(self):
-    #     """Returns results of object detection model for evaluation."""
-    #     return dict(zip(self.keys + ["fitness"], self.mean_results() + [self.fitness]))
+        """Returns results of object detection model for evaluation."""
+        return dict(zip(self.keys + ["fitness"], self.mean_results() + [self.fitness]))
 
     @property
     def curves(self):

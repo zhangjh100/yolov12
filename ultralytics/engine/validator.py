@@ -101,7 +101,6 @@ class BaseValidator:
         self.args.imgsz = check_imgsz(self.args.imgsz, max_dim=1)
 
         self.plots = {}
-        self.metrics = {'dice': 0.0, 'iou': 0.0}
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
 
     @smart_inference_mode()
@@ -293,23 +292,7 @@ class BaseValidator:
 
     def update_metrics(self, preds, batch):
         """Updates metrics based on predictions and batch."""
-        if not hasattr(self, 'metrics'):
-            self.metrics = {'dice': 0.0, 'iou': 0.0}
-
-        pred_masks = preds.get('masks', None)
-        true_masks = batch.get('masks', None)
-        if pred_masks is None or true_masks is None:
-            return
-
-        pred_masks = torch.sigmoid(pred_masks)
-        pred_masks = (pred_masks > 0.5).float()
-        true_masks = true_masks.float()
-
-        dice_val = dice_coefficient(pred_masks, true_masks)
-        iou_val = iou_score(pred_masks, true_masks)
-
-        self.metrics['dice'] = (self.metrics['dice'] + dice_val) / 2
-        self.metrics['iou'] = (self.metrics['iou'] + iou_val) / 2
+        pass
 
     def finalize_metrics(self, *args, **kwargs):
         """Finalizes and returns all metrics."""
@@ -325,9 +308,7 @@ class BaseValidator:
 
     def print_results(self):
         """Prints the results of the model's predictions."""
-        if hasattr(self, 'metrics'):
-            LOGGER.info(f"Dice Coefficient: {self.metrics['dice']:.4f}")
-            LOGGER.info(f"IoU Score: {self.metrics['iou']:.4f}")
+        pass
 
     def get_desc(self):
         """Get description of the YOLO model."""
@@ -358,21 +339,3 @@ class BaseValidator:
     def eval_json(self, stats):
         """Evaluate and return JSON format of prediction statistics."""
         pass
-
-def dice_coefficient(pred, target, eps=1e-6):
-    """计算 Dice 系数"""
-    pred = (pred > 0.5).float()
-    target = (target > 0.5).float()
-    intersection = (pred * target).sum((1, 2))
-    union = pred.sum((1, 2)) + target.sum((1, 2))
-    dice = (2.0 * intersection + eps) / (union + eps)
-    return dice.mean().item()
-
-def iou_score(pred, target, eps=1e-6):
-    """计算 IoU 指标"""
-    pred = (pred > 0.5).float()
-    target = (target > 0.5).float()
-    intersection = (pred * target).sum((1, 2))
-    union = pred.sum((1, 2)) + target.sum((1, 2)) - intersection
-    iou = (intersection + eps) / (union + eps)
-    return iou.mean().item()
