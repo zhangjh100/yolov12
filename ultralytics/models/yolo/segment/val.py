@@ -180,25 +180,32 @@ class SegmentationValidator(DetectionValidator):
             predn, pred_masks = self._prepare_pred(pred, pbatch, proto)
             pred_masks = pred_masks.float().cpu()
 
-            if gt_masks is None or gt_masks.numel() == 0:
+            if gt_masks is None or gt_masks.numel() == 0 or gt_masks.sum() == 0:
                 self.metrics.update_iou_dice_empty()
-            else:
-                n = min(gt_masks.shape[0], pred_masks.shape[0])
-                gt_masks = gt_masks[:n]
-                pred_masks = pred_masks[:n]
+                continue
 
-                gt_bin = (gt_masks > 0.5).float()
-                pred_bin = (pred_masks > 0.5).float()
+            n = min(gt_masks.shape[0], pred_masks.shape[0])
+            gt_masks = gt_masks[:n]
+            pred_masks = pred_masks[:n]
 
-                intersection = (gt_bin * pred_bin).sum(dim=(1, 2))
-                union = (gt_bin + pred_bin - gt_bin * pred_bin).sum(dim=(1, 2)) + 1e-6
-                iou = (intersection / union).mean().item()
+            if gt_masks.shape[1:] != pred_masks.shape[1:]:
+                pred_masks = F.interpolate(pred_masks.unsqueeze(1),
+                                           size=gt_masks.shape[1:],
+                                           mode="bilinear",
+                                           align_corners=False).squeeze(1)
 
-                dice = (2 * intersection / (gt_bin.sum(dim=(1, 2)) + pred_bin.sum(dim=(1, 2)) + 1e-6)).mean().item()
+            gt_bin = (gt_masks > 0.3).float()
+            pred_bin = (pred_masks > 0.1).float()
 
-                self.metrics.update_iou_dice(gt_bin, pred_bin)
-                self.metrics.process_iou_dice([iou], [dice])
-                self.metrics.dice_scores.append(torch.tensor([dice]))
+            # IoU / Dice
+            intersection = (gt_bin * pred_bin).sum(dim=(1, 2))
+            union = (gt_bin + pred_bin - gt_bin * pred_bin).sum(dim=(1, 2)) + 1e-6
+            iou = (intersection / union).mean().item()
+            dice = (2 * intersection / (gt_bin.sum(dim=(1, 2)) + pred_bin.sum(dim=(1, 2)) + 1e-6)).mean().item()
+
+            self.metrics.update_iou_dice(gt_bin, pred_bin)
+            self.metrics.process_iou_dice([iou], [dice])
+            self.metrics.dice_scores.append(torch.tensor([dice]))
 
             stat["conf"] = predn[:, 4]
             stat["pred_cls"] = predn[:, 5]
