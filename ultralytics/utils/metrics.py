@@ -16,21 +16,7 @@ OKS_SIGMA = (
     / 10.0
 )
 
-def dice_coefficient(pred_mask: torch.Tensor, true_mask: torch.Tensor, eps: float = 1e-6):
-    pred_mask = pred_mask.float()
-    true_mask = true_mask.float()
-    intersection = (pred_mask * true_mask).sum(dim = (-1, -2))
-    union = pred_mask.sum(dim = (-1, -2)) + true_mask.sum(dim = (-1, -2))
-    dice = (2. * intersection + eps) / (union + eps)
-    return dice  # 常见返回 shape (N,) 或标量
 
-def iou_score(pred_mask: torch.Tensor, true_mask: torch.Tensor, eps: float = 1e-6):
-    pred_mask = pred_mask.float()
-    true_mask = true_mask.float()
-    intersection = (pred_mask * true_mask).sum(dim = (-1, -2))
-    union = pred_mask.sum(dim = (-1, -2)) + true_mask.sum(dim = (-1, -2)) - intersection
-    iou = (intersection + eps) / (union + eps)
-    return iou
 
 def compute_per_class_metrics(pred_masks: torch.Tensor, true_masks: torch.Tensor, threshold: float = 0.5):
     """
@@ -1336,3 +1322,19 @@ class OBBMetrics(SimpleClass):
     def curves_results(self):
         """Returns a list of curves for accessing specific metrics curves."""
         return []
+
+def dice_coefficient(pred_mask: torch.Tensor, true_mask: torch.Tensor, eps: float = 1e-6):
+    pred_mask = pred_mask.float()
+    true_mask = true_mask.float()
+    intersection = (pred_mask * true_mask).sum(dim = (-1, -2))
+    union = pred_mask.sum(dim = (-1, -2)) + true_mask.sum(dim = (-1, -2))
+    dice = (2. * intersection + eps) / (union + eps)
+    return dice  # 常见返回 shape (N,) 或标量
+
+def iou_score(pred_mask: torch.Tensor, true_mask: torch.Tensor, eps: float = 1e-6):
+    pred_mask = pred_mask.float()
+    true_mask = true_mask.float()
+    intersection = (pred_mask * true_mask).sum(dim = (-1, -2))
+    union = pred_mask.sum(dim = (-1, -2)) + true_mask.sum(dim = (-1, -2)) - intersection
+    iou = (intersection + eps) / (union + eps)
+    return iou

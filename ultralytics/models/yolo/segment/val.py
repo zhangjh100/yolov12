@@ -13,6 +13,7 @@ from ultralytics.utils import LOGGER, NUM_THREADS, ops
 from ultralytics.utils.checks import check_requirements
 from ultralytics.utils.metrics import SegmentMetrics, box_iou, mask_iou
 from ultralytics.utils.plotting import output_to_target, plot_images
+from ultralytics.utils.metrics import dice_coefficient, iou_score
 
 
 # -------------------------------------------------
