@@ -207,8 +207,10 @@ class SegmentationValidator(DetectionValidator):
 
         dice_per_class = self.dice_sum_per_class / (self.count_per_class + 1e-6)
         iou_per_class = self.iou_sum_per_class / (self.count_per_class + 1e-6)
-        mean_dice = dice_per_class.mean().item()
-        mean_iou = iou_per_class.mean().item()
+        mean_dice = dice_per_class.item()
+        mean_iou = iou_per_class.item()
+        # mean_dice = dice_per_class.mean().item()
+        # mean_iou = iou_per_class.mean().item()
 
         LOGGER.info("\nPer-class segmentation evaluation (Dice / IoU):")
         for ci, name in enumerate(self.names):
